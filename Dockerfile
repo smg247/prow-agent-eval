@@ -1,13 +1,24 @@
-FROM golang:1.23 AS builder
-WORKDIR /build
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /prow-agent-eval ./cmd/prow-agent-eval
+FROM registry.access.redhat.com/ubi9/ubi:latest AS builder
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git make \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /prow-agent-eval /usr/local/bin/prow-agent-eval
+WORKDIR /go/src/prow-agent-eval
+
+ENV PATH="/go/bin:${PATH}"
+ENV GOPATH="/go"
+
+COPY . .
+
+RUN dnf install -y go make && \
+    make build
+
+FROM registry.access.redhat.com/ubi9/ubi:latest AS base
+
+COPY --from=builder /go/src/prow-agent-eval/bin/prow-agent-eval /usr/local/bin/prow-agent-eval
+
+RUN dnf install -y git make && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+LABEL io.k8s.display-name="Prow Agent Eval" \
+      io.openshift.tags="prow,eval,agent"
+
 ENTRYPOINT ["prow-agent-eval"]
