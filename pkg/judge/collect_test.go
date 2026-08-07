@@ -29,13 +29,14 @@ func TestValidateCollectOptionsExpectedBranch(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 
+	// FixtureHeadSHA empty is OK — Collect resolves it from BaseBranch at runtime.
 	err = validateCollectOptions(CollectOptions{
 		Config: &config.EvalConfig{Collect: config.CollectConfig{ExpectedBranchDiff: true}},
 		Case:   &config.Case{Input: config.CaseInput{ExpectedBranch: "golden"}},
 		Meta:   &shared.CaseMetadata{FixtureHeadSHA: ""},
 	})
-	if err == nil || !strings.Contains(err.Error(), "fixture head SHA") {
-		t.Fatalf("err = %v", err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

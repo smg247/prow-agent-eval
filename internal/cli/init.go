@@ -89,9 +89,6 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 		return fmt.Errorf("loading case: %w", err)
 	}
 
-	if c.Input.HeadBranch == "" {
-		return fmt.Errorf("case input missing head_branch")
-	}
 	if c.Input.BaseBranch == "" {
 		return fmt.Errorf("case input missing base_branch")
 	}
@@ -104,12 +101,33 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 		return err
 	}
 
+	slog.Info("initializing case", "case", caseName, "repo", repo, "mode", initMode)
+
+	meta := &shared.CaseMetadata{
+		CaseName:     caseName,
+		BaseBranch:   c.Input.BaseBranch,
+		JiraIssueKey: c.Input.JiraKey,
+		Repo:         repo,
+	}
+
+	if initMode == "solve" && c.Input.HeadBranch == "" {
+		// Solve mode without head_branch: the agent will create its own branch.
+		// Write metadata and case list only; no git operations needed.
+		if err := shared.WriteCaseMetadata(initFlags.sharedDir, meta); err != nil {
+			return fmt.Errorf("writing metadata: %w", err)
+		}
+		slog.Info("case done (metadata only)", "case", caseName)
+		return nil
+	}
+
+	if c.Input.HeadBranch == "" {
+		return fmt.Errorf("case input missing head_branch (required for followup mode)")
+	}
+
 	client, err := ghclient.NewClient(token, repo)
 	if err != nil {
 		return err
 	}
-
-	slog.Info("initializing case", "case", caseName, "repo", repo)
 
 	cloneDir, err := os.MkdirTemp("", "prow-agent-eval-*")
 	if err != nil {
@@ -150,15 +168,9 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 		slog.Warn("could not get bot login", "case", caseName, "error", err)
 	}
 
-	meta := &shared.CaseMetadata{
-		CaseName:       caseName,
-		HeadBranch:     evalBranch,
-		BaseBranch:     c.Input.BaseBranch,
-		FixtureHeadSHA: fixtureHeadSHA,
-		JiraIssueKey:   c.Input.JiraKey,
-		Repo:           repo,
-		BotLogin:       botLogin,
-	}
+	meta.HeadBranch = evalBranch
+	meta.FixtureHeadSHA = fixtureHeadSHA
+	meta.BotLogin = botLogin
 
 	if initMode == "followup" {
 		prTitle := fmt.Sprintf("[eval] %s", caseName)
@@ -171,7 +183,6 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 		slog.Info("created PR", "case", caseName, "pr", prNumber, "head", evalBranch, "base", c.Input.BaseBranch)
 	}
 
-	// Persist metadata before seeding so cleanup can reclaim orphans on later failure.
 	if err := shared.WriteCaseMetadata(initFlags.sharedDir, meta); err != nil {
 		return fmt.Errorf("writing metadata: %w", err)
 	}
@@ -207,9 +218,9 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 	}
 
 	if meta.PRNumber > 0 {
-		slog.Info("case done", "case", caseName, "pr", meta.PRNumber, "branch", evalBranch, "sha", git.ShortSHA(fixtureHeadSHA, 8))
+		slog.Info("case done", "case", caseName, "pr", meta.PRNumber, "branch", meta.HeadBranch, "sha", git.ShortSHA(fixtureHeadSHA, 8))
 	} else {
-		slog.Info("case done", "case", caseName, "branch", evalBranch, "sha", git.ShortSHA(fixtureHeadSHA, 8))
+		slog.Info("case done", "case", caseName, "branch", meta.HeadBranch, "sha", git.ShortSHA(fixtureHeadSHA, 8))
 	}
 	return nil
 }

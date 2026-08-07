@@ -41,13 +41,8 @@ func validateCollectOptions(opts CollectOptions) error {
 	if cfg.BotReplies && opts.Meta.BotLogin == "" {
 		return fmt.Errorf("bot_replies collect requires bot login in metadata")
 	}
-	if cfg.ExpectedBranchDiff {
-		if opts.Case.Input.ExpectedBranch == "" {
-			return fmt.Errorf("expected_branch_diff requires case input expected_branch")
-		}
-		if opts.Meta.FixtureHeadSHA == "" {
-			return fmt.Errorf("expected_branch_diff requires fixture head SHA in metadata")
-		}
+	if cfg.ExpectedBranchDiff && opts.Case.Input.ExpectedBranch == "" {
+		return fmt.Errorf("expected_branch_diff requires case input expected_branch")
 	}
 	if cfg.CommentMap && opts.SharedDir == "" {
 		return fmt.Errorf("comment_map collect requires shared dir")
@@ -73,24 +68,52 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 		return nil, fmt.Errorf("cloning repo: %w", err)
 	}
 
-	if err := repo.Fetch(ctx, "origin", opts.Meta.HeadBranch); err != nil {
+	headBranch := opts.Meta.HeadBranch
+	prNumber := opts.Meta.PRNumber
+
+	// If no head branch is known, discover the agent's PR and branch.
+	if headBranch == "" && prNumber > 0 {
+		pr, err := opts.Client.GetPR(ctx, prNumber)
+		if err != nil {
+			return nil, fmt.Errorf("fetching PR #%d to discover head branch: %w", prNumber, err)
+		}
+		headBranch = pr.GetHead().GetRef()
+		slog.Info("discovered head branch from PR", "pr", prNumber, "branch", headBranch)
+	}
+
+	if headBranch == "" {
+		return nil, fmt.Errorf("no head branch available: set eval-head-branch, claude-branch, or pr-number in metadata")
+	}
+
+	if err := repo.Fetch(ctx, "origin", headBranch); err != nil {
 		return nil, fmt.Errorf("fetching head branch: %w", err)
 	}
-	if err := repo.Checkout(ctx, "origin/"+opts.Meta.HeadBranch); err != nil {
+	if err := repo.Checkout(ctx, "origin/"+headBranch); err != nil {
 		return nil, fmt.Errorf("checking out head branch: %w", err)
 	}
 
-	diff, err := repo.DiffAgainst(ctx, opts.Meta.FixtureHeadSHA)
+	fixtureSHA := opts.Meta.FixtureHeadSHA
+	if fixtureSHA == "" {
+		if err := repo.Fetch(ctx, "origin", opts.Meta.BaseBranch); err != nil {
+			return nil, fmt.Errorf("fetching base branch for fixture SHA: %w", err)
+		}
+		fixtureSHA, err = repo.RevParse(ctx, "origin/"+opts.Meta.BaseBranch)
+		if err != nil {
+			return nil, fmt.Errorf("resolving base branch SHA: %w", err)
+		}
+		slog.Info("resolved fixture SHA from base branch", "base", opts.Meta.BaseBranch, "sha", fixtureSHA[:8])
+	}
+
+	diff, err := repo.DiffAgainst(ctx, fixtureSHA)
 	if err != nil {
 		return nil, fmt.Errorf("diff against fixture SHA: %w", err)
 	}
 	ghData["changed_files"] = diff.ChangedFiles
 	ghData["full_diff"] = diff.FullDiff
-	ghData["agent_branch"] = opts.Meta.HeadBranch
+	ghData["agent_branch"] = headBranch
 
-	prNumber := opts.Meta.PRNumber
 	if prNumber == 0 {
-		pr, err := opts.Client.FindPRByHead(ctx, opts.Meta.HeadBranch)
+		pr, err := opts.Client.FindPRByHead(ctx, headBranch)
 		if err != nil && !errors.Is(err, ghclient.ErrNotFound) {
 			slog.Warn("could not search for agent-created PR", "error", err)
 		} else if err == nil {

@@ -65,21 +65,18 @@ func WriteCaseMetadata(dir string, m *CaseMetadata) error {
 func ReadCaseMetadata(dir, caseName string) (*CaseMetadata, error) {
 	m := &CaseMetadata{CaseName: caseName}
 	prefix := caseName + "."
-	var err error
 
-	m.HeadBranch, err = readString(dir, prefix+"eval-head-branch")
-	if err != nil {
-		return nil, err
-	}
+	var err error
 	m.BaseBranch, err = readString(dir, prefix+"eval-base-branch")
 	if err != nil {
 		return nil, err
 	}
-	m.FixtureHeadSHA, err = readString(dir, prefix+"fixture-head-sha")
-	if err != nil {
-		return nil, err
-	}
 
+	m.HeadBranch, _ = readString(dir, prefix+"eval-head-branch")
+	if m.HeadBranch == "" {
+		m.HeadBranch, _ = readString(dir, prefix+"claude-branch")
+	}
+	m.FixtureHeadSHA, _ = readString(dir, prefix+"fixture-head-sha")
 	if n, err := readInt(dir, prefix+"pr-number"); err == nil {
 		m.PRNumber = n
 	}
