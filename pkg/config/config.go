@@ -75,8 +75,15 @@ func Load(path string) (*EvalConfig, error) {
 	return &cfg, nil
 }
 
+func datasetDir(configDir, datasetPath string) string {
+	if filepath.IsAbs(datasetPath) {
+		return datasetPath
+	}
+	return filepath.Join(configDir, datasetPath)
+}
+
 func LoadCase(configDir, datasetPath, caseName string) (*Case, error) {
-	caseDir := filepath.Join(configDir, datasetPath, caseName)
+	caseDir := filepath.Join(datasetDir(configDir, datasetPath), caseName)
 
 	inputData, err := os.ReadFile(filepath.Join(caseDir, "input.yaml"))
 	if err != nil {
@@ -106,7 +113,7 @@ func LoadCase(configDir, datasetPath, caseName string) (*Case, error) {
 }
 
 func ListCases(configDir, datasetPath string) ([]string, error) {
-	casesDir := filepath.Join(configDir, datasetPath)
+	casesDir := datasetDir(configDir, datasetPath)
 	entries, err := os.ReadDir(casesDir)
 	if err != nil {
 		return nil, fmt.Errorf("listing cases in %s: %w", casesDir, err)
