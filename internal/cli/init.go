@@ -110,6 +110,10 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 		Repo:         repo,
 	}
 
+	if err := writeCaseFiles(initFlags.sharedDir, c); err != nil {
+		return fmt.Errorf("writing case files: %w", err)
+	}
+
 	if initMode == "solve" && c.Input.HeadBranch == "" {
 		// Solve mode without head_branch: the agent will create its own branch.
 		// Write metadata and case list only; no git operations needed.
@@ -222,5 +226,30 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 	} else {
 		slog.Info("case done", "case", caseName, "branch", meta.HeadBranch, "sha", git.ShortSHA(fixtureHeadSHA, 8))
 	}
+	return nil
+}
+
+// writeCaseFiles copies per-case supporting files (jira-issue.json, expected branch, case name)
+// to SHARED_DIR so downstream steps can find them.
+func writeCaseFiles(sharedDir string, c *config.Case) error {
+	prefix := c.Name + "."
+
+	if err := shared.WriteFile(sharedDir, prefix+"eval-case", c.Name); err != nil {
+		return err
+	}
+
+	if c.Input.ExpectedBranch != "" {
+		if err := shared.WriteFile(sharedDir, prefix+"eval-expected-branch", c.Input.ExpectedBranch); err != nil {
+			return err
+		}
+	}
+
+	jiraPath := filepath.Join(c.Dir, "jira-issue.json")
+	if data, err := os.ReadFile(jiraPath); err == nil {
+		if err := shared.WriteFile(sharedDir, prefix+"jira-issue.json", string(data)); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
