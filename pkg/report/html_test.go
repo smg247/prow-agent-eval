@@ -12,16 +12,18 @@ import (
 func TestWriteHTML(t *testing.T) {
 	dir := t.TempDir()
 
-	results := []judge.Result{
-		{Name: "check_files", Passed: true, Message: "ok"},
-		{Name: "no_secrets", Passed: false, Message: "found pattern"},
+	caseResults := map[string][]judge.Result{
+		"case-001": {
+			{Name: "check_files", Passed: true, Message: "Jaccard overlap: 0.80"},
+			{Name: "no_secrets", Passed: false, Message: "found pattern"},
+		},
 	}
 
 	thresholds := []judge.ThresholdResult{
 		{Name: "check_files/pass_rate", Met: true, Actual: 1.0, Required: 1.0},
 	}
 
-	if err := WriteHTML(dir, "test-eval", results, thresholds); err != nil {
+	if err := WriteHTML(dir, "test-eval", caseResults, thresholds); err != nil {
 		t.Fatalf("WriteHTML: %v", err)
 	}
 
@@ -45,5 +47,11 @@ func TestWriteHTML(t *testing.T) {
 	}
 	if !strings.Contains(html, "MET") {
 		t.Error("HTML missing threshold status")
+	}
+	if !strings.Contains(html, "case-001") {
+		t.Error("HTML missing case name")
+	}
+	if !strings.Contains(html, "<details") {
+		t.Error("HTML missing expandable details")
 	}
 }

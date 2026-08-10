@@ -111,6 +111,7 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 	ghData["changed_files"] = diff.ChangedFiles
 	ghData["full_diff"] = diff.FullDiff
 	ghData["agent_branch"] = headBranch
+	ghData["agent_diff_lines"] = countDiffLines(diff.FullDiff)
 
 	if prNumber == 0 {
 		pr, err := opts.Client.FindPRByHead(ctx, headBranch)
@@ -129,8 +130,15 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 			return nil, fmt.Errorf("fetching PR #%d: %w", prNumber, err)
 		}
 		ghData["pr_state"] = pr.GetState()
+		ghData["pr_body"] = pr.GetBody()
 	} else {
 		ghData["pr_state"] = "none"
+	}
+
+	// Also check for PR description file from the solve step.
+	descPath := filepath.Join(opts.SharedDir, opts.Meta.CaseName+".pr-description.md")
+	if data, err := os.ReadFile(descPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		ghData["pr_description_file"] = true
 	}
 
 	cfg := opts.Config.Collect
@@ -192,11 +200,13 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 		if err := repo.Fetch(ctx, "origin", expectedBranch); err != nil {
 			return nil, fmt.Errorf("fetching expected branch %s: %w", expectedBranch, err)
 		}
-		expectedDiff, err := repo.DiffBranches(ctx, opts.Meta.FixtureHeadSHA, "origin/"+expectedBranch)
+		expectedDiff, err := repo.DiffBranches(ctx, fixtureSHA, "origin/"+expectedBranch)
 		if err != nil {
 			return nil, fmt.Errorf("diffing fixture against expected branch: %w", err)
 		}
 		ghData["expected_changed_files"] = expectedDiff.ChangedFiles
+		ghData["expected_diff_lines"] = countDiffLines(expectedDiff.FullDiff)
+		ghData["expected_full_diff"] = expectedDiff.FullDiff
 	}
 
 	outputs["github"] = ghData
@@ -210,6 +220,16 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 	}
 
 	return outputs, nil
+}
+
+func countDiffLines(diff string) int {
+	count := 0
+	for _, line := range strings.Split(diff, "\n") {
+		if len(line) > 0 && (line[0] == '+' || line[0] == '-') && !strings.HasPrefix(line, "+++") && !strings.HasPrefix(line, "---") {
+			count++
+		}
+	}
+	return count
 }
 
 func runMake(ctx context.Context, dir, target string) map[string]any {

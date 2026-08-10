@@ -4,14 +4,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/smg247/prow-agent-eval/pkg/judge"
 	"gopkg.in/yaml.v3"
 )
 
 type CaseReport struct {
-	Case    string         `yaml:"case"`
-	Results []ResultReport `yaml:"results"`
+	Case                 string            `yaml:"case"`
+	JiraKey              string            `yaml:"jira_key,omitempty"`
+	ClaudeBranch         string            `yaml:"claude_branch,omitempty"`
+	BaseBranch           string            `yaml:"base_branch,omitempty"`
+	ExpectedBranch       string            `yaml:"expected_branch,omitempty"`
+	PRNumber             string            `yaml:"pr_number,omitempty"`
+	Checks               map[string]string `yaml:"checks"`
+	Scores               map[string]string `yaml:"scores,omitempty"`
+	ClaudeFilesChanged   []string          `yaml:"claude_files_changed,omitempty"`
+	ExpectedFilesChanged []string          `yaml:"expected_files_changed,omitempty"`
+	ClaudeDiffLines      int               `yaml:"claude_diff_lines,omitempty"`
+	ExpectedDiffLines    int               `yaml:"expected_diff_lines,omitempty"`
 }
 
 type ResultReport struct {
@@ -22,12 +35,10 @@ type ResultReport struct {
 }
 
 type SummaryReport struct {
-	EvalName   string            `yaml:"eval_name"`
-	TotalCases int               `yaml:"total_cases"`
-	Passed     int               `yaml:"passed"`
-	Failed     int               `yaml:"failed"`
-	Errors     int               `yaml:"errors"`
-	Thresholds []ThresholdReport `yaml:"thresholds,omitempty"`
+	CasesRun          int               `yaml:"cases_run"`
+	TotalChecksPassed int               `yaml:"total_checks_passed"`
+	TotalChecks       int               `yaml:"total_checks"`
+	Thresholds        []ThresholdReport `yaml:"thresholds,omitempty"`
 }
 
 type ThresholdReport struct {
@@ -37,15 +48,67 @@ type ThresholdReport struct {
 	Required float64 `yaml:"required"`
 }
 
-func WriteCaseYAML(dir, caseName string, results []judge.Result) error {
-	report := CaseReport{Case: caseName}
+var scoreRe = regexp.MustCompile(`:\s*([\d.]+)`)
+
+func extractScore(msg string) string {
+	if m := scoreRe.FindStringSubmatch(msg); m != nil {
+		return m[1]
+	}
+	if strings.Contains(msg, "N/A") {
+		return "N/A"
+	}
+	return ""
+}
+
+func WriteCaseYAML(dir, caseName string, results []judge.Result, outputs judge.Outputs) error {
+	report := CaseReport{
+		Case:   caseName,
+		Checks: make(map[string]string),
+	}
+
+	gh, _ := outputs["github"].(map[string]any)
+	if gh != nil {
+		report.ClaudeBranch, _ = gh["agent_branch"].(string)
+		if report.ClaudeBranch == "" {
+			report.ClaudeBranch = "none"
+		}
+		report.ClaudeFilesChanged = toStringSlice(gh["changed_files"])
+		report.ExpectedFilesChanged = toStringSlice(gh["expected_changed_files"])
+		if n, ok := gh["agent_diff_lines"].(int); ok {
+			report.ClaudeDiffLines = n
+		}
+		if n, ok := gh["expected_diff_lines"].(int); ok {
+			report.ExpectedDiffLines = n
+		}
+		if n, ok := gh["pr_number"].(int); ok && n > 0 {
+			report.PRNumber = strconv.Itoa(n)
+		} else {
+			report.PRNumber = "none"
+		}
+	}
+
+	passed := 0
+	total := 0
+	scores := make(map[string]string)
 	for _, r := range results {
-		report.Results = append(report.Results, ResultReport{
-			Name:    r.Name,
-			Passed:  r.Passed,
-			Message: r.Message,
-			Error:   r.Error,
-		})
+		total++
+		if r.Error != "" {
+			report.Checks[r.Name] = "error"
+		} else if r.Passed {
+			report.Checks[r.Name] = "pass"
+			passed++
+		} else {
+			report.Checks[r.Name] = "fail"
+		}
+		if s := extractScore(r.Message); s != "" {
+			scores[r.Name] = s
+		}
+	}
+	report.Checks["passed"] = strconv.Itoa(passed)
+	report.Checks["total"] = strconv.Itoa(total)
+
+	if len(scores) > 0 {
+		report.Scores = scores
 	}
 
 	data, err := yaml.Marshal(report)
@@ -61,11 +124,9 @@ func WriteSummaryYAML(dir, evalName string, totalCases int, results []judge.Resu
 	tally := TallyResults(results)
 
 	summary := SummaryReport{
-		EvalName:   evalName,
-		TotalCases: totalCases,
-		Passed:     tally.Passed,
-		Failed:     tally.Failed,
-		Errors:     tally.Errors,
+		CasesRun:          totalCases,
+		TotalChecksPassed: tally.Passed,
+		TotalChecks:       tally.Total,
 	}
 
 	for _, t := range thresholds {
@@ -84,4 +145,21 @@ func WriteSummaryYAML(dir, evalName string, totalCases int, results []judge.Resu
 
 	path := filepath.Join(dir, "eval-summary.yaml")
 	return os.WriteFile(path, data, 0644)
+}
+
+func toStringSlice(v any) []string {
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }

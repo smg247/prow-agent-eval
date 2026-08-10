@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/smg247/prow-agent-eval/pkg/judge"
 )
@@ -41,37 +42,55 @@ type JUnitError struct {
 	Text    string `xml:",chardata"`
 }
 
-func WriteJUnit(dir, evalName string, results []judge.Result) error {
-	var cases []JUnitTestCase
-	tally := TallyResults(results)
+func WriteJUnit(dir, evalName string, caseResults map[string][]judge.Result) error {
+	var allCases []JUnitTestCase
+	totalTests := 0
+	totalFailures := 0
+	totalErrors := 0
 
-	for _, r := range results {
-		tc := JUnitTestCase{
-			Name:      r.Name,
-			ClassName: evalName,
-		}
-		if r.Error != "" {
-			tc.Error = &JUnitError{
-				Message: r.Error,
-				Text:    r.Error,
+	caseNames := make([]string, 0, len(caseResults))
+	for name := range caseResults {
+		caseNames = append(caseNames, name)
+	}
+	sort.Strings(caseNames)
+
+	for _, caseName := range caseNames {
+		results := caseResults[caseName]
+		for _, r := range results {
+			totalTests++
+			tc := JUnitTestCase{
+				Name:      fmt.Sprintf("[%s] %s %s", evalName, caseName, r.Name),
+				ClassName: fmt.Sprintf("%s.%s", evalName, caseName),
 			}
-		} else if !r.Passed {
-			tc.Failure = &JUnitFailure{
-				Message: r.Message,
-				Text:    r.Message,
+			if r.Error != "" {
+				tc.Error = &JUnitError{
+					Message: r.Error,
+					Text:    r.Error,
+				}
+				totalErrors++
+			} else if !r.Passed {
+				msg := r.Message
+				if msg == "" {
+					msg = r.Name + " check did not pass."
+				}
+				tc.Failure = &JUnitFailure{
+					Message: msg,
+					Text:    msg,
+				}
+				totalFailures++
 			}
+			allCases = append(allCases, tc)
 		}
-		cases = append(cases, tc)
 	}
 
 	suites := JUnitTestSuites{
 		Suites: []JUnitTestSuite{
 			{
 				Name:     evalName,
-				Tests:    tally.Total,
-				Failures: tally.Failed,
-				Errors:   tally.Errors,
-				Cases:    cases,
+				Tests:    totalTests,
+				Failures: totalFailures,
+				Errors:   totalErrors,
+				Cases:    allCases,
 			},
 		},
 	}

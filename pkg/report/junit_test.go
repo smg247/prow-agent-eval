@@ -13,13 +13,17 @@ import (
 func TestWriteJUnit(t *testing.T) {
 	dir := t.TempDir()
 
-	results := []judge.Result{
-		{Name: "check_files", Passed: true, Message: "All files changed"},
-		{Name: "no_secrets", Passed: false, Message: "Credential pattern found"},
-		{Name: "quality", Error: "Python error"},
+	caseResults := map[string][]judge.Result{
+		"case-001": {
+			{Name: "check_files", Passed: true, Message: "All files changed"},
+			{Name: "no_secrets", Passed: false, Message: "Credential pattern found"},
+		},
+		"case-002": {
+			{Name: "quality", Error: "Python error"},
+		},
 	}
 
-	if err := WriteJUnit(dir, "test-eval", results); err != nil {
+	if err := WriteJUnit(dir, "test-eval", caseResults); err != nil {
 		t.Fatalf("WriteJUnit: %v", err)
 	}
 
@@ -51,5 +55,12 @@ func TestWriteJUnit(t *testing.T) {
 	}
 	if suite.Errors != 1 {
 		t.Errorf("Errors = %d, want 1", suite.Errors)
+	}
+
+	if suite.Cases[0].ClassName != "test-eval.case-001" {
+		t.Errorf("ClassName = %q, want %q", suite.Cases[0].ClassName, "test-eval.case-001")
+	}
+	if !strings.Contains(suite.Cases[0].Name, "[test-eval]") {
+		t.Errorf("Name %q should contain [test-eval]", suite.Cases[0].Name)
 	}
 }

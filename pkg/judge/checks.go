@@ -12,9 +12,12 @@ import (
 var builtins = map[string]func(Outputs) (bool, string){
 	"branch_created":         checkBranchCreated,
 	"pr_exists":              checkPRExists,
+	"pr_description_exists":  checkPRDescriptionExists,
 	"build_passed":           checkBuildPassed,
 	"test_passed":            checkTestPassed,
 	"file_overlap":           checkFileOverlap,
+	"diff_size_ratio":        checkDiffSizeRatio,
+	"function_overlap":       checkFunctionOverlap,
 	"expected_files_changed": checkExpectedFilesChanged,
 	"no_secrets":             checkNoSecrets,
 }
@@ -97,6 +100,73 @@ func checkPRExists(outputs Outputs) (bool, string) {
 		}
 	}
 	return false, "No PR created"
+}
+
+func checkPRDescriptionExists(outputs Outputs) (bool, string) {
+	gh := githubMap(outputs)
+	body, _ := gh["pr_body"].(string)
+	if strings.TrimSpace(body) != "" {
+		return true, "PR description exists"
+	}
+	if _, ok := gh["pr_description_file"]; ok {
+		return true, "PR description file exists"
+	}
+	return false, "No PR description"
+}
+
+func checkDiffSizeRatio(outputs Outputs) (bool, string) {
+	gh := githubMap(outputs)
+	agentLines, ok1 := gh["agent_diff_lines"].(int)
+	expectedLines, ok2 := gh["expected_diff_lines"].(int)
+	if !ok1 || !ok2 {
+		return true, "N/A (no expected diff)"
+	}
+	if expectedLines == 0 {
+		if agentLines == 0 {
+			return true, "Diff size ratio: N/A (both empty)"
+		}
+		return true, fmt.Sprintf("Diff size ratio: N/A (expected empty, agent=%d)", agentLines)
+	}
+	ratio := float64(agentLines) / float64(expectedLines)
+	passed := ratio >= 0.1
+	return passed, fmt.Sprintf("Diff size ratio: %.2f", ratio)
+}
+
+func checkFunctionOverlap(outputs Outputs) (bool, string) {
+	gh := githubMap(outputs)
+	agentDiff, _ := gh["full_diff"].(string)
+	expectedDiff, _ := gh["expected_full_diff"].(string)
+	if expectedDiff == "" {
+		return true, "N/A (no expected diff)"
+	}
+	agentFuncs := extractFunctions(agentDiff)
+	expectedFuncs := extractFunctions(expectedDiff)
+	if len(agentFuncs) == 0 && len(expectedFuncs) == 0 {
+		return true, "Function overlap: N/A"
+	}
+	if len(agentFuncs) == 0 || len(expectedFuncs) == 0 {
+		return false, fmt.Sprintf("Function overlap: 0.00 (agent=%d expected=%d)", len(agentFuncs), len(expectedFuncs))
+	}
+	inter := 0
+	for f := range agentFuncs {
+		if expectedFuncs[f] {
+			inter++
+		}
+	}
+	union := len(agentFuncs) + len(expectedFuncs) - inter
+	overlap := float64(inter) / float64(union)
+	return overlap >= 0.25, fmt.Sprintf("Function overlap: %.2f", overlap)
+}
+
+func extractFunctions(diff string) map[string]bool {
+	funcs := make(map[string]bool)
+	funcRe := regexp.MustCompile(`^@@.*@@\s+func\s+(\([^)]*\)\s+)?(\w+)`)
+	for _, line := range strings.Split(diff, "\n") {
+		if m := funcRe.FindStringSubmatch(line); m != nil {
+			funcs[m[2]] = true
+		}
+	}
+	return funcs
 }
 
 func checkBuildPassed(outputs Outputs) (bool, string) {
