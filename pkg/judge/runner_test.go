@@ -88,11 +88,11 @@ func TestEvaluateGate(t *testing.T) {
 	if !ok {
 		t.Error("expected ok")
 	}
-	ok, reason := EvaluateGate([]ThresholdResult{{Met: true}}, 2)
-	if ok || reason == "" {
-		t.Errorf("expected case error failure, ok=%v reason=%q", ok, reason)
+	ok, _ = EvaluateGate([]ThresholdResult{{Met: true}}, 2)
+	if !ok {
+		t.Error("case errors should not cause hard failure (synthetic results flow through thresholds)")
 	}
-	ok, reason = EvaluateGate([]ThresholdResult{{Met: false, Name: "x"}}, 0)
+	ok, reason := EvaluateGate([]ThresholdResult{{Met: false, Name: "x"}}, 0)
 	if ok || reason == "" {
 		t.Errorf("expected threshold failure, ok=%v reason=%q", ok, reason)
 	}

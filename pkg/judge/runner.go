@@ -98,10 +98,9 @@ func ApplyThresholds(results []Result, thresholds map[string]config.Threshold) [
 }
 
 // EvaluateGate returns whether the overall judge run should succeed.
+// Case collection errors are reflected as synthetic FAIL results in
+// thresholds rather than causing a hard failure here.
 func EvaluateGate(thresholds []ThresholdResult, caseErrors int) (ok bool, reason string) {
-	if caseErrors > 0 {
-		return false, fmt.Sprintf("%d case error(s)", caseErrors)
-	}
 	for _, t := range thresholds {
 		if !t.Met {
 			return false, "one or more thresholds not met"
