@@ -130,7 +130,7 @@ func WriteCaseYAML(dir, caseName string, results []judge.Result, outputs judge.O
 	}
 
 	path := filepath.Join(dir, fmt.Sprintf("eval-%s.yaml", caseName))
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func WriteSummaryYAML(dir, evalName string, totalCases int, results []judge.Result, thresholds []judge.ThresholdResult) error {
@@ -157,7 +157,7 @@ func WriteSummaryYAML(dir, evalName string, totalCases int, results []judge.Resu
 	}
 
 	path := filepath.Join(dir, "eval-summary.yaml")
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func toStringSlice(v any) []string {

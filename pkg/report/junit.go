@@ -102,5 +102,5 @@ func WriteJUnit(dir, evalName string, caseResults map[string][]judge.Result) err
 
 	path := filepath.Join(dir, fmt.Sprintf("junit_%s.xml", evalName))
 	header := []byte(xml.Header)
-	return os.WriteFile(path, append(header, data...), 0644)
+	return os.WriteFile(path, append(header, data...), 0o600)
 }

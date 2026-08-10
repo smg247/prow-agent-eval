@@ -70,9 +70,9 @@ func gitRun(ctx context.Context, dir, token string, args ...string) error {
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return fmt.Errorf("%w: %s", err, redactSecrets(msg))
+			return fmt.Errorf("%w: %s", err, RedactSecrets(msg))
 		}
-		return fmt.Errorf("%s", redactSecrets(err.Error()))
+		return fmt.Errorf("%s", RedactSecrets(err.Error()))
 	}
 	return nil
 }
@@ -87,9 +87,9 @@ func gitOutput(ctx context.Context, dir, token string, args ...string) (string, 
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg != "" {
-			return "", fmt.Errorf("%w: %s", err, redactSecrets(msg))
+			return "", fmt.Errorf("%w: %s", err, RedactSecrets(msg))
 		}
-		return "", fmt.Errorf("%s", redactSecrets(err.Error()))
+		return "", fmt.Errorf("%s", RedactSecrets(err.Error()))
 	}
 	return string(out), nil
 }
@@ -103,7 +103,8 @@ func redactURL(url string) string {
 	return urlCredPattern.ReplaceAllString(url, "://***:***@")
 }
 
-func redactSecrets(s string) string {
+// RedactSecrets scrubs credentials from error text and log output.
+func RedactSecrets(s string) string {
 	s = urlCredPattern.ReplaceAllString(s, "://***:***@")
 	s = basicAuthPattern.ReplaceAllString(s, "${1}***")
 	return s
@@ -118,9 +119,4 @@ func ShortSHA(sha string, n int) string {
 		return sha
 	}
 	return sha[:n]
-}
-
-// RedactSecrets is exported for tests and callers that need to scrub error text.
-func RedactSecrets(s string) string {
-	return redactSecrets(s)
 }

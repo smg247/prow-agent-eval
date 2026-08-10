@@ -57,8 +57,8 @@ a:hover { text-decoration: underline; }
   <td>{{.FileOverlap}}</td>
   <td>{{.DiffRatio}}</td>
   <td>{{.FuncOverlap}}</td>
-  <td>{{.PRHTML}}</td>
-  <td>{{.DiffLinkHTML}}</td>
+  <td>{{if .PRURL}}<a href="{{.PRURL}}" target="_blank">#{{.PRNumber}}</a>{{else}}—{{end}}</td>
+  <td>{{if .ExpectedDiffURL}}<a href="{{.ExpectedDiffURL}}" target="_blank">expected diff</a>{{end}}</td>
 </tr>
 {{end}}
 </tbody>
@@ -71,7 +71,9 @@ a:hover { text-decoration: underline; }
 <div class="content">
 {{if .HasLinks}}
 <div class="links">
-{{.PRHTML}} {{.DiffLinkHTML}} {{.AgentDiffLinkHTML}}
+{{if .PRURL}}<a href="{{.PRURL}}" target="_blank">#{{.PRNumber}}</a>{{end}}
+{{if .ExpectedDiffURL}}<a href="{{.ExpectedDiffURL}}" target="_blank">expected diff</a>{{end}}
+{{if .AgentDiffURL}}<a href="{{.AgentDiffURL}}" target="_blank">agent diff</a>{{end}}
 </div>
 {{end}}
 <table>
@@ -119,19 +121,20 @@ type htmlData struct {
 }
 
 type htmlCase struct {
-	Name             string
-	Passed           int
-	Failed           int
-	Total            int
-	FileOverlap      string
-	DiffRatio        string
-	FuncOverlap      string
-	PR               string
-	PRHTML           template.HTML
-	DiffLinkHTML     template.HTML
-	AgentDiffLinkHTML template.HTML
-	HasLinks         bool
-	Results          []htmlResult
+	Name            string
+	Passed          int
+	Failed          int
+	Total           int
+	FileOverlap     string
+	DiffRatio       string
+	FuncOverlap     string
+	PR              string
+	PRNumber        int
+	PRURL           string
+	ExpectedDiffURL string
+	AgentDiffURL    string
+	HasLinks        bool
+	Results         []htmlResult
 }
 
 type htmlResult struct {
@@ -165,7 +168,6 @@ func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thre
 			DiffRatio:   "—",
 			FuncOverlap: "—",
 			PR:          "—",
-			PRHTML:      "—",
 		}
 
 		for _, r := range results {
@@ -213,41 +215,7 @@ func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thre
 
 		if outputsMap != nil {
 			if outputs, ok := outputsMap[caseName]; ok {
-				gh, _ := outputs["github"].(map[string]any)
-				if gh != nil {
-					repo, _ := gh["repo"].(string)
-					baseBranch, _ := gh["base_branch"].(string)
-					expectedBranch, _ := gh["expected_branch"].(string)
-					agentBranch, _ := gh["agent_branch"].(string)
-
-					prNum := 0
-					switch n := gh["pr_number"].(type) {
-					case int:
-						prNum = n
-					case int64:
-						prNum = int(n)
-					case float64:
-						prNum = int(n)
-					}
-
-					if repo != "" && prNum > 0 {
-						prURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, prNum)
-						hc.PRHTML = template.HTML(fmt.Sprintf(`<a href="%s" target="_blank">#%d</a>`, prURL, prNum))
-						hc.HasLinks = true
-					}
-
-					if repo != "" && baseBranch != "" && expectedBranch != "" {
-						diffURL := fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, expectedBranch)
-						hc.DiffLinkHTML = template.HTML(fmt.Sprintf(`<a href="%s" target="_blank">expected diff</a>`, diffURL))
-						hc.HasLinks = true
-					}
-
-					if repo != "" && baseBranch != "" && agentBranch != "" {
-						agentDiffURL := fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, agentBranch)
-						hc.AgentDiffLinkHTML = template.HTML(fmt.Sprintf(`<a href="%s" target="_blank">agent diff</a>`, agentDiffURL))
-						hc.HasLinks = true
-					}
-				}
+				populateCaseLinks(&hc, outputs)
 			}
 		}
 
@@ -276,4 +244,40 @@ func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thre
 	defer f.Close()
 
 	return tmpl.Execute(f, data)
+}
+
+func populateCaseLinks(hc *htmlCase, outputs judge.Outputs) {
+	gh, _ := outputs["github"].(map[string]any)
+	if gh == nil {
+		return
+	}
+
+	repo, _ := gh["repo"].(string)
+	baseBranch, _ := gh["base_branch"].(string)
+	expectedBranch, _ := gh["expected_branch"].(string)
+	agentBranch, _ := gh["agent_branch"].(string)
+
+	prNum := 0
+	switch n := gh["pr_number"].(type) {
+	case int:
+		prNum = n
+	case int64:
+		prNum = int(n)
+	case float64:
+		prNum = int(n)
+	}
+
+	if repo != "" && prNum > 0 {
+		hc.PRNumber = prNum
+		hc.PRURL = fmt.Sprintf("https://github.com/%s/pull/%d", repo, prNum)
+		hc.HasLinks = true
+	}
+	if repo != "" && baseBranch != "" && expectedBranch != "" {
+		hc.ExpectedDiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, expectedBranch)
+		hc.HasLinks = true
+	}
+	if repo != "" && baseBranch != "" && agentBranch != "" {
+		hc.AgentDiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, agentBranch)
+		hc.HasLinks = true
+	}
 }

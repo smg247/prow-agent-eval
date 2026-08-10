@@ -56,33 +56,18 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 	}
 
 	outputs := make(Outputs)
-
 	if opts.Case.Annotations != nil {
 		outputs["annotations"] = opts.Case.Annotations
 	}
-
-	ghData := make(map[string]any)
 
 	repo, err := git.Clone(ctx, opts.Client.CloneURL(), opts.CloneDir, opts.Token)
 	if err != nil {
 		return nil, fmt.Errorf("cloning repo: %w", err)
 	}
 
-	headBranch := opts.Meta.HeadBranch
-	prNumber := opts.Meta.PRNumber
-
-	// If no head branch is known, discover the agent's PR and branch.
-	if headBranch == "" && prNumber > 0 {
-		pr, err := opts.Client.GetPR(ctx, prNumber)
-		if err != nil {
-			return nil, fmt.Errorf("fetching PR #%d to discover head branch: %w", prNumber, err)
-		}
-		headBranch = pr.GetHead().GetRef()
-		slog.Info("discovered head branch from PR", "pr", prNumber, "branch", headBranch)
-	}
-
-	if headBranch == "" {
-		return nil, fmt.Errorf("no head branch available: set eval-head-branch, claude-branch, or pr-number in metadata")
+	headBranch, prNumber, err := resolveHead(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := repo.Fetch(ctx, "origin", headBranch); err != nil {
@@ -92,44 +77,108 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 		return nil, fmt.Errorf("checking out head branch: %w", err)
 	}
 
-	fixtureSHA := opts.Meta.FixtureHeadSHA
-	if fixtureSHA == "" {
-		if err := repo.Fetch(ctx, "origin", opts.Meta.BaseBranch); err != nil {
-			return nil, fmt.Errorf("fetching base branch for fixture SHA: %w", err)
-		}
-		fixtureSHA, err = repo.RevParse(ctx, "origin/"+opts.Meta.BaseBranch)
-		if err != nil {
-			return nil, fmt.Errorf("resolving base branch SHA: %w", err)
-		}
-		slog.Info("resolved fixture SHA from base branch", "base", opts.Meta.BaseBranch, "sha", fixtureSHA[:8])
+	fixtureSHA, err := resolveFixtureSHA(ctx, repo, opts.Meta)
+	if err != nil {
+		return nil, err
 	}
 
+	ghData, err := collectGitHubData(ctx, opts, repo, headBranch, fixtureSHA, prNumber)
+	if err != nil {
+		return nil, err
+	}
+	outputs["github"] = ghData
+
+	cfg := opts.Config.Collect
+	if cfg.BuildResult {
+		outputs["build_result"] = runMake(ctx, opts.CloneDir, "build")
+	}
+	if cfg.TestResult {
+		outputs["test_result"] = runMake(ctx, opts.CloneDir, "test")
+	}
+
+	return outputs, nil
+}
+
+func resolveHead(ctx context.Context, opts CollectOptions) (headBranch string, prNumber int, err error) {
+	headBranch = opts.Meta.HeadBranch
+	prNumber = opts.Meta.PRNumber
+
+	if headBranch == "" && prNumber > 0 {
+		pr, err := opts.Client.GetPR(ctx, prNumber)
+		if err != nil {
+			return "", 0, fmt.Errorf("fetching PR #%d to discover head branch: %w", prNumber, err)
+		}
+		headBranch = pr.GetHead().GetRef()
+		slog.Info("discovered head branch from PR", "pr", prNumber, "branch", headBranch)
+	}
+	if headBranch == "" {
+		return "", 0, fmt.Errorf("no head branch available: set eval-head-branch, claude-branch, or pr-number in metadata")
+	}
+	return headBranch, prNumber, nil
+}
+
+func resolveFixtureSHA(ctx context.Context, repo *git.Repo, meta *shared.CaseMetadata) (string, error) {
+	if meta.FixtureHeadSHA != "" {
+		return meta.FixtureHeadSHA, nil
+	}
+	if err := repo.Fetch(ctx, "origin", meta.BaseBranch); err != nil {
+		return "", fmt.Errorf("fetching base branch for fixture SHA: %w", err)
+	}
+	fixtureSHA, err := repo.RevParse(ctx, "origin/"+meta.BaseBranch)
+	if err != nil {
+		return "", fmt.Errorf("resolving base branch SHA: %w", err)
+	}
+	slog.Info("resolved fixture SHA from base branch", "base", meta.BaseBranch, "sha", fixtureSHA[:8])
+	return fixtureSHA, nil
+}
+
+func collectGitHubData(ctx context.Context, opts CollectOptions, repo *git.Repo, headBranch, fixtureSHA string, prNumber int) (map[string]any, error) {
 	diff, err := repo.DiffAgainst(ctx, fixtureSHA)
 	if err != nil {
 		return nil, fmt.Errorf("diff against fixture SHA: %w", err)
 	}
-	ghData["changed_files"] = diff.ChangedFiles
-	ghData["full_diff"] = diff.FullDiff
-	ghData["agent_branch"] = headBranch
-	ghData["agent_diff_lines"] = countDiffLines(diff.FullDiff)
-	ghData["repo"] = opts.Client.Owner() + "/" + opts.Client.Repo()
-	ghData["base_branch"] = opts.Meta.BaseBranch
 
-	if prNumber == 0 {
-		pr, err := opts.Client.FindPRByHead(ctx, headBranch)
-		if err != nil && !errors.Is(err, ghclient.ErrNotFound) {
-			slog.Warn("could not search for agent-created PR", "error", err)
-		} else if err == nil {
-			prNumber = pr.GetNumber()
-			slog.Info("discovered agent-created PR", "pr", prNumber)
-		}
+	ghData := map[string]any{
+		"changed_files":    diff.ChangedFiles,
+		"full_diff":        diff.FullDiff,
+		"agent_branch":     headBranch,
+		"agent_diff_lines": countDiffLines(diff.FullDiff),
+		"repo":             opts.Client.Owner() + "/" + opts.Client.Repo(),
+		"base_branch":      opts.Meta.BaseBranch,
 	}
+
+	prNumber = resolvePRNumber(ctx, opts.Client, headBranch, prNumber)
 	ghData["pr_number"] = prNumber
 
+	if err := collectPRDetails(ctx, opts, ghData, prNumber); err != nil {
+		return nil, err
+	}
+	if err := collectOptionalGitHubData(ctx, opts, repo, ghData, fixtureSHA, prNumber); err != nil {
+		return nil, err
+	}
+	return ghData, nil
+}
+
+func resolvePRNumber(ctx context.Context, client *ghclient.Client, headBranch string, prNumber int) int {
+	if prNumber != 0 {
+		return prNumber
+	}
+	pr, err := client.FindPRByHead(ctx, headBranch)
+	if err != nil {
+		if !errors.Is(err, ghclient.ErrNotFound) {
+			slog.Warn("could not search for agent-created PR", "error", err)
+		}
+		return 0
+	}
+	slog.Info("discovered agent-created PR", "pr", pr.GetNumber())
+	return pr.GetNumber()
+}
+
+func collectPRDetails(ctx context.Context, opts CollectOptions, ghData map[string]any, prNumber int) error {
 	if prNumber > 0 {
 		pr, err := opts.Client.GetPR(ctx, prNumber)
 		if err != nil {
-			return nil, fmt.Errorf("fetching PR #%d: %w", prNumber, err)
+			return fmt.Errorf("fetching PR #%d: %w", prNumber, err)
 		}
 		ghData["pr_state"] = pr.GetState()
 		ghData["pr_body"] = pr.GetBody()
@@ -137,92 +186,104 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 		ghData["pr_state"] = "none"
 	}
 
-	// Also check for PR description file from the solve step.
 	descPath := filepath.Join(opts.SharedDir, opts.Meta.CaseName+".pr-description.md")
 	if data, err := os.ReadFile(descPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
 		ghData["pr_description_file"] = true
 	}
+	return nil
+}
 
+func collectOptionalGitHubData(ctx context.Context, opts CollectOptions, repo *git.Repo, ghData map[string]any, fixtureSHA string, prNumber int) error {
 	cfg := opts.Config.Collect
 
 	if cfg.BotReplies {
-		if prNumber <= 0 {
-			return nil, fmt.Errorf("bot_replies collect requires a PR number")
-		}
-		botLogin := opts.Meta.BotLogin
-		issueComments, err := opts.Client.ListIssueComments(ctx, prNumber)
+		replies, err := collectBotReplies(ctx, opts.Client, prNumber, opts.Meta.BotLogin)
 		if err != nil {
-			return nil, fmt.Errorf("listing issue comments: %w", err)
+			return err
 		}
-		prComments, err := opts.Client.ListPRReviewComments(ctx, prNumber)
-		if err != nil {
-			return nil, fmt.Errorf("listing PR review comments: %w", err)
-		}
-
-		var botReplies []map[string]any
-		for _, c := range issueComments {
-			if c.GetUser().GetLogin() == botLogin {
-				botReplies = append(botReplies, map[string]any{
-					"id":         c.GetID(),
-					"body":       c.GetBody(),
-					"created_at": c.GetCreatedAt().String(),
-					"type":       "issue",
-				})
-			}
-		}
-		for _, c := range prComments {
-			if c.GetUser().GetLogin() == botLogin {
-				botReplies = append(botReplies, map[string]any{
-					"id":         c.GetID(),
-					"body":       c.GetBody(),
-					"created_at": c.GetCreatedAt().String(),
-					"path":       c.GetPath(),
-					"type":       "review",
-				})
-			}
-		}
-		ghData["bot_replies"] = botReplies
+		ghData["bot_replies"] = replies
 	}
 
 	if cfg.CommentMap {
-		mapPath := filepath.Join(opts.SharedDir, opts.Meta.CaseName+".comment-map.json")
-		data, err := os.ReadFile(mapPath)
+		commentMap, err := loadCommentMap(opts.SharedDir, opts.Meta.CaseName)
 		if err != nil {
-			return nil, fmt.Errorf("reading comment map: %w", err)
-		}
-		var commentMap map[string]any
-		if err := json.Unmarshal(data, &commentMap); err != nil {
-			return nil, fmt.Errorf("parsing comment map: %w", err)
+			return err
 		}
 		ghData["comment_map"] = commentMap
 	}
 
 	if cfg.ExpectedBranchDiff {
-		expectedBranch := opts.Case.Input.ExpectedBranch
-		if err := repo.Fetch(ctx, "origin", expectedBranch); err != nil {
-			return nil, fmt.Errorf("fetching expected branch %s: %w", expectedBranch, err)
+		if err := collectExpectedDiff(ctx, repo, opts.Case.Input.ExpectedBranch, fixtureSHA, ghData); err != nil {
+			return err
 		}
-		expectedDiff, err := repo.DiffBranches(ctx, fixtureSHA, "origin/"+expectedBranch)
-		if err != nil {
-			return nil, fmt.Errorf("diffing fixture against expected branch: %w", err)
+	}
+	return nil
+}
+
+func collectBotReplies(ctx context.Context, client *ghclient.Client, prNumber int, botLogin string) ([]map[string]any, error) {
+	if prNumber <= 0 {
+		return nil, fmt.Errorf("bot_replies collect requires a PR number")
+	}
+	issueComments, err := client.ListIssueComments(ctx, prNumber)
+	if err != nil {
+		return nil, fmt.Errorf("listing issue comments: %w", err)
+	}
+	prComments, err := client.ListPRReviewComments(ctx, prNumber)
+	if err != nil {
+		return nil, fmt.Errorf("listing PR review comments: %w", err)
+	}
+
+	var botReplies []map[string]any
+	for _, c := range issueComments {
+		if c.GetUser().GetLogin() == botLogin {
+			botReplies = append(botReplies, map[string]any{
+				"id":         c.GetID(),
+				"body":       c.GetBody(),
+				"created_at": c.GetCreatedAt().String(),
+				"type":       "issue",
+			})
 		}
-		ghData["expected_changed_files"] = expectedDiff.ChangedFiles
-		ghData["expected_diff_lines"] = countDiffLines(expectedDiff.FullDiff)
-		ghData["expected_full_diff"] = expectedDiff.FullDiff
-		ghData["expected_branch"] = expectedBranch
 	}
-
-	outputs["github"] = ghData
-
-	if cfg.BuildResult {
-		outputs["build_result"] = runMake(ctx, opts.CloneDir, "build")
+	for _, c := range prComments {
+		if c.GetUser().GetLogin() == botLogin {
+			botReplies = append(botReplies, map[string]any{
+				"id":         c.GetID(),
+				"body":       c.GetBody(),
+				"created_at": c.GetCreatedAt().String(),
+				"path":       c.GetPath(),
+				"type":       "review",
+			})
+		}
 	}
+	return botReplies, nil
+}
 
-	if cfg.TestResult {
-		outputs["test_result"] = runMake(ctx, opts.CloneDir, "test")
+func loadCommentMap(sharedDir, caseName string) (map[string]any, error) {
+	mapPath := filepath.Join(sharedDir, caseName+".comment-map.json")
+	data, err := os.ReadFile(mapPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading comment map: %w", err)
 	}
+	var commentMap map[string]any
+	if err := json.Unmarshal(data, &commentMap); err != nil {
+		return nil, fmt.Errorf("parsing comment map: %w", err)
+	}
+	return commentMap, nil
+}
 
-	return outputs, nil
+func collectExpectedDiff(ctx context.Context, repo *git.Repo, expectedBranch, fixtureSHA string, ghData map[string]any) error {
+	if err := repo.Fetch(ctx, "origin", expectedBranch); err != nil {
+		return fmt.Errorf("fetching expected branch %s: %w", expectedBranch, err)
+	}
+	expectedDiff, err := repo.DiffBranches(ctx, fixtureSHA, "origin/"+expectedBranch)
+	if err != nil {
+		return fmt.Errorf("diffing fixture against expected branch: %w", err)
+	}
+	ghData["expected_changed_files"] = expectedDiff.ChangedFiles
+	ghData["expected_diff_lines"] = countDiffLines(expectedDiff.FullDiff)
+	ghData["expected_full_diff"] = expectedDiff.FullDiff
+	ghData["expected_branch"] = expectedBranch
+	return nil
 }
 
 func countDiffLines(diff string) int {

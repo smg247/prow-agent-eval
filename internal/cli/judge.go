@@ -60,7 +60,7 @@ func runJudge(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no cases found")
 	}
 
-	if err := os.MkdirAll(judgeArtifactDir, 0755); err != nil {
+	if err := os.MkdirAll(judgeArtifactDir, 0o755); err != nil {
 		return fmt.Errorf("creating artifact dir: %w", err)
 	}
 
@@ -162,7 +162,7 @@ func saveBuildTestLogs(artifactDir, caseName string, outputs judge.Outputs) {
 			suffix = "test"
 		}
 		path := filepath.Join(artifactDir, caseName+"-"+suffix+".log")
-		if err := os.WriteFile(path, []byte(output), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(output), 0o600); err != nil {
 			slog.Warn("failed to write log", "file", path, "error", err)
 		}
 	}

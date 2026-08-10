@@ -3,6 +3,7 @@ module github.com/smg247/prow-agent-eval
 go 1.26.3
 
 require (
+	github.com/google/go-cmp v0.7.0
 	github.com/google/go-github/v67 v67.0.0
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1

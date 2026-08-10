@@ -88,12 +88,8 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 	if err != nil {
 		return fmt.Errorf("loading case: %w", err)
 	}
-
-	if c.Input.BaseBranch == "" {
-		return fmt.Errorf("case input missing base_branch")
-	}
-	if cfg.Collect.ExpectedBranchDiff && c.Input.ExpectedBranch == "" {
-		return fmt.Errorf("expected_branch_diff is enabled but case input missing expected_branch")
+	if err := validateCaseInput(cfg, c); err != nil {
+		return err
 	}
 
 	repo, err := resolveRepo(cfg.Init.Repo, c.Input.Repo)
@@ -115,20 +111,50 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 	}
 
 	if initMode == "solve" && c.Input.HeadBranch == "" {
-		// Solve mode without head_branch: the agent will create its own branch.
-		// Write metadata and case list only; no git operations needed.
 		if err := shared.WriteCaseMetadata(initFlags.sharedDir, meta); err != nil {
 			return fmt.Errorf("writing metadata: %w", err)
 		}
 		slog.Info("case done (metadata only)", "case", caseName)
 		return nil
 	}
-
 	if c.Input.HeadBranch == "" {
 		return fmt.Errorf("case input missing head_branch (required for followup mode)")
 	}
 
-	client, err := ghclient.NewClient(token, repo)
+	if err := setupEvalBranch(ctx, cfg, c, meta, token); err != nil {
+		return err
+	}
+
+	if err := shared.WriteCaseMetadata(initFlags.sharedDir, meta); err != nil {
+		return fmt.Errorf("writing metadata: %w", err)
+	}
+
+	if initMode == "followup" {
+		if err := seedCaseComments(ctx, c, meta, token); err != nil {
+			return err
+		}
+	}
+
+	if meta.PRNumber > 0 {
+		slog.Info("case done", "case", caseName, "pr", meta.PRNumber, "branch", meta.HeadBranch, "sha", git.ShortSHA(meta.FixtureHeadSHA, 8))
+	} else {
+		slog.Info("case done", "case", caseName, "branch", meta.HeadBranch, "sha", git.ShortSHA(meta.FixtureHeadSHA, 8))
+	}
+	return nil
+}
+
+func validateCaseInput(cfg *config.EvalConfig, c *config.Case) error {
+	if c.Input.BaseBranch == "" {
+		return fmt.Errorf("case input missing base_branch")
+	}
+	if cfg.Collect.ExpectedBranchDiff && c.Input.ExpectedBranch == "" {
+		return fmt.Errorf("expected_branch_diff is enabled but case input missing expected_branch")
+	}
+	return nil
+}
+
+func setupEvalBranch(ctx context.Context, cfg *config.EvalConfig, c *config.Case, meta *shared.CaseMetadata, token string) error {
+	client, err := ghclient.NewClient(token, meta.Repo)
 	if err != nil {
 		return err
 	}
@@ -148,7 +174,7 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 		return fmt.Errorf("fetching head branch %s: %w", c.Input.HeadBranch, err)
 	}
 
-	branchPrefix := strings.ReplaceAll(caseName, "/", "-")
+	branchPrefix := strings.ReplaceAll(c.Name, "/", "-")
 	evalBranch := git.EvalBranchName(branchPrefix)
 
 	if err := gitRepo.CreateBranch(ctx, evalBranch, "origin/"+c.Input.HeadBranch); err != nil {
@@ -169,63 +195,65 @@ func initCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, 
 		if cfg.Collect.BotReplies {
 			return fmt.Errorf("getting bot login (required for bot_replies): %w", err)
 		}
-		slog.Warn("could not get bot login", "case", caseName, "error", err)
+		slog.Warn("could not get bot login", "case", c.Name, "error", err)
 	}
 
 	meta.HeadBranch = evalBranch
 	meta.FixtureHeadSHA = fixtureHeadSHA
 	meta.BotLogin = botLogin
 
-	if initMode == "followup" {
-		prTitle := fmt.Sprintf("[eval] %s", caseName)
-		prBody := fmt.Sprintf("Automated eval PR for case: %s\nJira: %s", caseName, c.Input.JiraKey)
-		prNumber, err := client.CreatePR(ctx, evalBranch, c.Input.BaseBranch, prTitle, prBody)
-		if err != nil {
-			return fmt.Errorf("creating PR: %w", err)
+	if initMode != "followup" {
+		return nil
+	}
+
+	prTitle := fmt.Sprintf("[eval] %s", c.Name)
+	prBody := fmt.Sprintf("Automated eval PR for case: %s\nJira: %s", c.Name, c.Input.JiraKey)
+	prNumber, err := client.CreatePR(ctx, evalBranch, c.Input.BaseBranch, prTitle, prBody)
+	if err != nil {
+		return fmt.Errorf("creating PR: %w", err)
+	}
+	meta.PRNumber = prNumber
+	slog.Info("created PR", "case", c.Name, "pr", prNumber, "head", evalBranch, "base", c.Input.BaseBranch)
+	return nil
+}
+
+func seedCaseComments(ctx context.Context, c *config.Case, meta *shared.CaseMetadata, token string) error {
+	commentsPath := filepath.Join(c.Dir, "comments.json")
+	st, err := os.Stat(commentsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
 		}
-		meta.PRNumber = prNumber
-		slog.Info("created PR", "case", caseName, "pr", prNumber, "head", evalBranch, "base", c.Input.BaseBranch)
+		return fmt.Errorf("stat comments.json: %w", err)
+	}
+	if st.IsDir() {
+		return nil
 	}
 
-	if err := shared.WriteCaseMetadata(initFlags.sharedDir, meta); err != nil {
-		return fmt.Errorf("writing metadata: %w", err)
+	client, err := ghclient.NewClient(token, meta.Repo)
+	if err != nil {
+		return err
 	}
 
-	if initMode == "followup" {
-		commentsPath := filepath.Join(c.Dir, "comments.json")
-		st, err := os.Stat(commentsPath)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("stat comments.json: %w", err)
-			}
-		} else if !st.IsDir() {
-			comments, err := ghclient.LoadSeededComments(commentsPath)
-			if err != nil {
-				return fmt.Errorf("loading seeded comments: %w", err)
-			}
-
-			commentMap, err := client.SeedComments(ctx, meta.PRNumber, comments)
-			if err != nil {
-				return fmt.Errorf("seeding comments: %w", err)
-			}
-
-			mapData, err := json.Marshal(commentMap)
-			if err != nil {
-				return fmt.Errorf("marshaling comment map: %w", err)
-			}
-			if err := shared.WriteFile(initFlags.sharedDir, caseName+".comment-map.json", string(mapData)); err != nil {
-				return fmt.Errorf("writing comment map: %w", err)
-			}
-
-			slog.Info("seeded comments", "case", caseName, "count", len(comments))
-		}
+	comments, err := ghclient.LoadSeededComments(commentsPath)
+	if err != nil {
+		return fmt.Errorf("loading seeded comments: %w", err)
 	}
 
-	if meta.PRNumber > 0 {
-		slog.Info("case done", "case", caseName, "pr", meta.PRNumber, "branch", meta.HeadBranch, "sha", git.ShortSHA(fixtureHeadSHA, 8))
-	} else {
-		slog.Info("case done", "case", caseName, "branch", meta.HeadBranch, "sha", git.ShortSHA(fixtureHeadSHA, 8))
+	commentMap, err := client.SeedComments(ctx, meta.PRNumber, comments)
+	if err != nil {
+		return fmt.Errorf("seeding comments: %w", err)
 	}
+
+	mapData, err := json.Marshal(commentMap)
+	if err != nil {
+		return fmt.Errorf("marshaling comment map: %w", err)
+	}
+	if err := shared.WriteFile(initFlags.sharedDir, c.Name+".comment-map.json", string(mapData)); err != nil {
+		return fmt.Errorf("writing comment map: %w", err)
+	}
+
+	slog.Info("seeded comments", "case", c.Name, "count", len(comments))
 	return nil
 }
 

@@ -259,14 +259,15 @@ var secretPatterns = []*regexp.Regexp{
 func checkNoSecrets(outputs Outputs) (bool, string) {
 	gh := githubMap(outputs)
 	var b strings.Builder
-	if replies, ok := gh["bot_replies"].([]map[string]any); ok {
+	switch replies := gh["bot_replies"].(type) {
+	case []map[string]any:
 		for _, m := range replies {
 			if body, ok := m["body"].(string); ok {
 				b.WriteString(body)
 				b.WriteByte(' ')
 			}
 		}
-	} else if replies, ok := gh["bot_replies"].([]any); ok {
+	case []any:
 		for _, r := range replies {
 			if m, ok := r.(map[string]any); ok {
 				if body, ok := m["body"].(string); ok {

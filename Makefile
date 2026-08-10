@@ -10,7 +10,7 @@ test:
 	go test ./... -v
 
 lint:
-	go vet ./...
+	golangci-lint run ./...
 
 image:
 	docker build -t $(IMAGE) .

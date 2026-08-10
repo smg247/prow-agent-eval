@@ -55,7 +55,7 @@ func WriteCaseMetadata(dir string, m *CaseMetadata) error {
 			}
 			continue
 		}
-		if err := os.WriteFile(path, []byte(val), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(val), 0o600); err != nil {
 			return fmt.Errorf("writing %s: %w", name, err)
 		}
 	}
@@ -89,18 +89,17 @@ func ReadCaseMetadata(dir, caseName string) (*CaseMetadata, error) {
 
 func WriteCaseList(dir string, cases []string) error {
 	content := strings.Join(cases, "\n") + "\n"
-	return os.WriteFile(filepath.Join(dir, "eval-cases"), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(dir, "eval-cases"), []byte(content), 0o600)
 }
 
 // EnsureCaseInList adds caseName to eval-cases if missing, preserving existing entries.
 func EnsureCaseInList(dir, caseName string) error {
 	existing, err := ReadCaseList(dir)
 	if err != nil {
-		if _, statErr := os.Stat(filepath.Join(dir, "eval-cases")); os.IsNotExist(statErr) {
-			existing = nil
-		} else {
+		if _, statErr := os.Stat(filepath.Join(dir, "eval-cases")); !os.IsNotExist(statErr) {
 			return err
 		}
+		existing = nil
 	}
 	for _, c := range existing {
 		if c == caseName {
@@ -129,7 +128,7 @@ func WriteFile(dir, name, content string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 func ReadFile(dir, name string) (string, error) {
