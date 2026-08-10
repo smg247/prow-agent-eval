@@ -15,26 +15,26 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
 <title>Eval Report: {{.EvalName}}</title>
 <style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px 120px; }
-h1 { color: #1a1a1a; }
-h2 { color: #333; margin-top: 32px; }
-.summary { background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 24px; font-size: 18px; }
-.pass { color: #22863a; }
-.fail { color: #cb2431; }
-.error { color: #e36209; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px 200px; background: #1e1e1e; color: #e0e0e0; }
+h1 { color: #ffffff; }
+h2 { color: #cccccc; margin-top: 32px; }
+.summary { background: #2a2a2a; padding: 16px; border-radius: 8px; margin-bottom: 24px; font-size: 18px; }
+.pass { color: #4caf50; }
+.fail { color: #f44336; }
+.error { color: #ff9800; }
 table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e1e4e8; }
-th { background: #f6f8fa; font-weight: 600; }
-details { margin-bottom: 16px; border: 1px solid #e1e4e8; border-radius: 6px; }
-details > summary { padding: 12px 16px; cursor: pointer; background: #f6f8fa; border-radius: 6px; font-weight: 600; }
-details[open] > summary { border-bottom: 1px solid #e1e4e8; border-radius: 6px 6px 0 0; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #444; }
+th { background: #2a2a2a; font-weight: 600; color: #e0e0e0; }
+details { margin-bottom: 16px; border: 1px solid #444; border-radius: 6px; }
+details > summary { padding: 12px 16px; cursor: pointer; background: #2a2a2a; border-radius: 6px; font-weight: 600; color: #e0e0e0; }
+details[open] > summary { border-bottom: 1px solid #444; border-radius: 6px 6px 0 0; }
 details .content { padding: 16px; }
 .icon-pass::before { content: "✅ "; }
 .icon-fail::before { content: "❌ "; }
 .icon-error::before { content: "⚠️ "; }
-.threshold-met { color: #22863a; }
-.threshold-missed { color: #cb2431; }
-a { color: #0366d6; text-decoration: none; }
+.threshold-met { color: #4caf50; }
+.threshold-missed { color: #f44336; }
+a { color: #64b5f6; text-decoration: none; }
 a:hover { text-decoration: underline; }
 .links { margin-top: 8px; font-size: 14px; }
 .links a { margin-right: 16px; }
