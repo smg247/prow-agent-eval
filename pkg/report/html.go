@@ -15,7 +15,7 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
 <title>Eval Report: {{.EvalName}}</title>
 <style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px 120px; }
 h1 { color: #1a1a1a; }
 h2 { color: #333; margin-top: 32px; }
 .summary { background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 24px; font-size: 18px; }
@@ -34,6 +34,10 @@ details .content { padding: 16px; }
 .icon-error::before { content: "⚠️ "; }
 .threshold-met { color: #22863a; }
 .threshold-missed { color: #cb2431; }
+a { color: #0366d6; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.links { margin-top: 8px; font-size: 14px; }
+.links a { margin-right: 16px; }
 </style>
 </head>
 <body>
@@ -44,7 +48,7 @@ details .content { padding: 16px; }
 
 <h2>Overview</h2>
 <table>
-<thead><tr><th>Case</th><th>Checks</th><th>File Overlap</th><th>Diff Ratio</th><th>Func Overlap</th><th>PR</th></tr></thead>
+<thead><tr><th>Case</th><th>Checks</th><th>File Overlap</th><th>Diff Ratio</th><th>Func Overlap</th><th>PR</th><th>Links</th></tr></thead>
 <tbody>
 {{range .Cases}}
 <tr>
@@ -53,7 +57,8 @@ details .content { padding: 16px; }
   <td>{{.FileOverlap}}</td>
   <td>{{.DiffRatio}}</td>
   <td>{{.FuncOverlap}}</td>
-  <td>{{.PR}}</td>
+  <td>{{.PRHTML}}</td>
+  <td>{{.DiffLinkHTML}}</td>
 </tr>
 {{end}}
 </tbody>
@@ -64,6 +69,11 @@ details .content { padding: 16px; }
 <details>
 <summary>{{if eq .Failed 0}}{{.Name}} — <span class="pass">{{.Passed}}/{{.Total}} passed</span>{{else}}{{.Name}} — <span class="fail">{{.Passed}}/{{.Total}} passed</span>{{end}}</summary>
 <div class="content">
+{{if .HasLinks}}
+<div class="links">
+{{.PRHTML}} {{.DiffLinkHTML}} {{.AgentDiffLinkHTML}}
+</div>
+{{end}}
 <table>
 <thead><tr><th>Check</th><th>Status</th><th>Message</th></tr></thead>
 <tbody>
@@ -109,15 +119,19 @@ type htmlData struct {
 }
 
 type htmlCase struct {
-	Name        string
-	Passed      int
-	Failed      int
-	Total       int
-	FileOverlap string
-	DiffRatio   string
-	FuncOverlap string
-	PR          string
-	Results     []htmlResult
+	Name             string
+	Passed           int
+	Failed           int
+	Total            int
+	FileOverlap      string
+	DiffRatio        string
+	FuncOverlap      string
+	PR               string
+	PRHTML           template.HTML
+	DiffLinkHTML     template.HTML
+	AgentDiffLinkHTML template.HTML
+	HasLinks         bool
+	Results          []htmlResult
 }
 
 type htmlResult struct {
@@ -127,7 +141,12 @@ type htmlResult struct {
 	IconClass string
 }
 
-func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thresholds []judge.ThresholdResult) error {
+func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thresholds []judge.ThresholdResult, caseOutputs ...map[string]judge.Outputs) error {
+	var outputsMap map[string]judge.Outputs
+	if len(caseOutputs) > 0 {
+		outputsMap = caseOutputs[0]
+	}
+
 	caseNames := make([]string, 0, len(caseResults))
 	for name := range caseResults {
 		caseNames = append(caseNames, name)
@@ -146,6 +165,7 @@ func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thre
 			DiffRatio:   "—",
 			FuncOverlap: "—",
 			PR:          "—",
+			PRHTML:      "—",
 		}
 
 		for _, r := range results {
@@ -189,6 +209,46 @@ func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thre
 			}
 
 			hc.Results = append(hc.Results, hr)
+		}
+
+		if outputsMap != nil {
+			if outputs, ok := outputsMap[caseName]; ok {
+				gh, _ := outputs["github"].(map[string]any)
+				if gh != nil {
+					repo, _ := gh["repo"].(string)
+					baseBranch, _ := gh["base_branch"].(string)
+					expectedBranch, _ := gh["expected_branch"].(string)
+					agentBranch, _ := gh["agent_branch"].(string)
+
+					prNum := 0
+					switch n := gh["pr_number"].(type) {
+					case int:
+						prNum = n
+					case int64:
+						prNum = int(n)
+					case float64:
+						prNum = int(n)
+					}
+
+					if repo != "" && prNum > 0 {
+						prURL := fmt.Sprintf("https://github.com/%s/pull/%d", repo, prNum)
+						hc.PRHTML = template.HTML(fmt.Sprintf(`<a href="%s" target="_blank">#%d</a>`, prURL, prNum))
+						hc.HasLinks = true
+					}
+
+					if repo != "" && baseBranch != "" && expectedBranch != "" {
+						diffURL := fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, expectedBranch)
+						hc.DiffLinkHTML = template.HTML(fmt.Sprintf(`<a href="%s" target="_blank">expected diff</a>`, diffURL))
+						hc.HasLinks = true
+					}
+
+					if repo != "" && baseBranch != "" && agentBranch != "" {
+						agentDiffURL := fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, agentBranch)
+						hc.AgentDiffLinkHTML = template.HTML(fmt.Sprintf(`<a href="%s" target="_blank">agent diff</a>`, agentDiffURL))
+						hc.HasLinks = true
+					}
+				}
+			}
 		}
 
 		cases = append(cases, hc)

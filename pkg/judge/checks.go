@@ -183,19 +183,14 @@ func checkMakeResult(outputs Outputs, key string) (bool, string) {
 		return false, key + " not collected"
 	}
 	passed, _ := res["passed"].(bool)
-	output, _ := res["output"].(string)
-	msg := output
-	if len(msg) > 200 {
-		msg = msg[len(msg)-200:]
+	if passed {
+		return true, "passed"
 	}
-	if msg == "" {
-		if passed {
-			msg = "passed"
-		} else {
-			msg = "failed"
-		}
+	errMsg, _ := res["error"].(string)
+	if errMsg != "" {
+		return false, "failed: " + errMsg
 	}
-	return passed, msg
+	return false, "failed"
 }
 
 func checkFileOverlap(outputs Outputs) (bool, string) {

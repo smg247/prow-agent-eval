@@ -55,3 +55,52 @@ func TestWriteHTML(t *testing.T) {
 		t.Error("HTML missing expandable details")
 	}
 }
+
+func TestWriteHTMLWithLinks(t *testing.T) {
+	dir := t.TempDir()
+
+	caseResults := map[string][]judge.Result{
+		"case-001": {
+			{Name: "pr_exists", Passed: true, Message: "PR #42"},
+			{Name: "file_overlap", Passed: true, Message: "Jaccard overlap: 0.80"},
+		},
+	}
+
+	caseOutputs := map[string]judge.Outputs{
+		"case-001": {
+			"github": map[string]any{
+				"repo":            "myorg/myrepo",
+				"pr_number":       42,
+				"base_branch":     "main",
+				"expected_branch": "expected-fix",
+				"agent_branch":    "claude/fix-123",
+			},
+		},
+	}
+
+	if err := WriteHTML(dir, "test-eval", caseResults, nil, caseOutputs); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "eval-summary.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	html := string(data)
+	if !strings.Contains(html, "https://github.com/myorg/myrepo/pull/42") {
+		t.Error("HTML missing PR link")
+	}
+	if !strings.Contains(html, "https://github.com/myorg/myrepo/compare/main...expected-fix") {
+		t.Error("HTML missing expected diff link")
+	}
+	if !strings.Contains(html, "https://github.com/myorg/myrepo/compare/main...claude/fix-123") {
+		t.Error("HTML missing agent diff link")
+	}
+	if !strings.Contains(html, "expected diff") {
+		t.Error("HTML missing 'expected diff' link text")
+	}
+	if !strings.Contains(html, "agent diff") {
+		t.Error("HTML missing 'agent diff' link text")
+	}
+}

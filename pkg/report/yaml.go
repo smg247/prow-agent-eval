@@ -19,6 +19,8 @@ type CaseReport struct {
 	BaseBranch           string            `yaml:"base_branch,omitempty"`
 	ExpectedBranch       string            `yaml:"expected_branch,omitempty"`
 	PRNumber             string            `yaml:"pr_number,omitempty"`
+	PRURL                string            `yaml:"pr_url,omitempty"`
+	DiffURL              string            `yaml:"diff_url,omitempty"`
 	Checks               map[string]string `yaml:"checks"`
 	Scores               map[string]string `yaml:"scores,omitempty"`
 	ClaudeFilesChanged   []string          `yaml:"claude_files_changed,omitempty"`
@@ -80,10 +82,21 @@ func WriteCaseYAML(dir, caseName string, results []judge.Result, outputs judge.O
 		if n, ok := gh["expected_diff_lines"].(int); ok {
 			report.ExpectedDiffLines = n
 		}
+		repo, _ := gh["repo"].(string)
+		baseBranch, _ := gh["base_branch"].(string)
+		expectedBranch, _ := gh["expected_branch"].(string)
+		report.BaseBranch = baseBranch
+		report.ExpectedBranch = expectedBranch
 		if n, ok := gh["pr_number"].(int); ok && n > 0 {
 			report.PRNumber = strconv.Itoa(n)
+			if repo != "" {
+				report.PRURL = fmt.Sprintf("https://github.com/%s/pull/%d", repo, n)
+			}
 		} else {
 			report.PRNumber = "none"
+		}
+		if repo != "" && baseBranch != "" && expectedBranch != "" {
+			report.DiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, expectedBranch)
 		}
 	}
 

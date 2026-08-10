@@ -105,8 +105,12 @@ func runJudge(cmd *cobra.Command, args []string) error {
 	thresholds := judge.ApplyThresholds(allResults, cfg.Thresholds)
 
 	caseResultMap := make(map[string][]judge.Result)
+	caseOutputsMap := make(map[string]judge.Outputs)
 	for _, cr := range allCases {
 		caseResultMap[cr.name] = cr.results
+		if cr.outputs != nil {
+			caseOutputsMap[cr.name] = cr.outputs
+		}
 	}
 
 	if err := report.WriteJUnit(judgeArtifactDir, cfg.Name, caseResultMap); err != nil {
@@ -115,7 +119,7 @@ func runJudge(cmd *cobra.Command, args []string) error {
 	if err := report.WriteSummaryYAML(judgeArtifactDir, cfg.Name, len(caseNames), allResults, thresholds); err != nil {
 		slog.Warn("failed to write summary YAML", "error", err)
 	}
-	if err := report.WriteHTML(judgeArtifactDir, cfg.Name, caseResultMap, thresholds); err != nil {
+	if err := report.WriteHTML(judgeArtifactDir, cfg.Name, caseResultMap, thresholds, caseOutputsMap); err != nil {
 		slog.Warn("failed to write HTML report", "error", err)
 	}
 

@@ -55,6 +55,50 @@ func TestWriteCaseYAML(t *testing.T) {
 	}
 }
 
+func TestWriteCaseYAMLWithURLs(t *testing.T) {
+	dir := t.TempDir()
+
+	results := []judge.Result{
+		{Name: "pr_exists", Passed: true, Message: "PR #42"},
+	}
+	outputs := judge.Outputs{
+		"github": map[string]any{
+			"repo":            "myorg/myrepo",
+			"pr_number":       42,
+			"agent_branch":    "fix-branch",
+			"base_branch":     "main",
+			"expected_branch": "expected-fix",
+		},
+	}
+
+	if err := WriteCaseYAML(dir, "case-001", results, outputs); err != nil {
+		t.Fatalf("WriteCaseYAML: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "eval-case-001.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var report CaseReport
+	if err := yaml.Unmarshal(data, &report); err != nil {
+		t.Fatalf("parsing YAML: %v", err)
+	}
+
+	if report.PRURL != "https://github.com/myorg/myrepo/pull/42" {
+		t.Errorf("PRURL = %q, want GitHub PR URL", report.PRURL)
+	}
+	if report.DiffURL != "https://github.com/myorg/myrepo/compare/main...expected-fix" {
+		t.Errorf("DiffURL = %q, want GitHub compare URL", report.DiffURL)
+	}
+	if report.BaseBranch != "main" {
+		t.Errorf("BaseBranch = %q, want main", report.BaseBranch)
+	}
+	if report.ExpectedBranch != "expected-fix" {
+		t.Errorf("ExpectedBranch = %q, want expected-fix", report.ExpectedBranch)
+	}
+}
+
 func TestWriteSummaryYAML(t *testing.T) {
 	dir := t.TempDir()
 

@@ -112,6 +112,8 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 	ghData["full_diff"] = diff.FullDiff
 	ghData["agent_branch"] = headBranch
 	ghData["agent_diff_lines"] = countDiffLines(diff.FullDiff)
+	ghData["repo"] = opts.Client.Owner() + "/" + opts.Client.Repo()
+	ghData["base_branch"] = opts.Meta.BaseBranch
 
 	if prNumber == 0 {
 		pr, err := opts.Client.FindPRByHead(ctx, headBranch)
@@ -207,6 +209,7 @@ func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
 		ghData["expected_changed_files"] = expectedDiff.ChangedFiles
 		ghData["expected_diff_lines"] = countDiffLines(expectedDiff.FullDiff)
 		ghData["expected_full_diff"] = expectedDiff.FullDiff
+		ghData["expected_branch"] = expectedBranch
 	}
 
 	outputs["github"] = ghData
