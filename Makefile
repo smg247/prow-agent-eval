@@ -1,4 +1,4 @@
-.PHONY: build test lint image clean
+.PHONY: build test test-integration lint image clean
 
 BINARY := prow-agent-eval
 IMAGE := prow-agent-eval
@@ -8,6 +8,9 @@ build:
 
 test:
 	go test ./... -v
+
+test-integration:
+	go test -tags=integration ./test/integration/... -v -count=1
 
 lint:
 	golangci-lint run ./...

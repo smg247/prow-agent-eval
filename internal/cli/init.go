@@ -154,7 +154,7 @@ func validateCaseInput(cfg *config.EvalConfig, c *config.Case) error {
 }
 
 func setupEvalBranch(ctx context.Context, cfg *config.EvalConfig, c *config.Case, meta *shared.CaseMetadata, token string) error {
-	client, err := ghclient.NewClient(token, meta.Repo)
+	client, err := deps.NewGitHubClient(token, meta.Repo)
 	if err != nil {
 		return err
 	}
@@ -230,7 +230,7 @@ func seedCaseComments(ctx context.Context, c *config.Case, meta *shared.CaseMeta
 		return nil
 	}
 
-	client, err := ghclient.NewClient(token, meta.Repo)
+	client, err := deps.NewGitHubClient(token, meta.Repo)
 	if err != nil {
 		return err
 	}

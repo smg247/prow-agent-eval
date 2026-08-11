@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/smg247/prow-agent-eval/pkg/config"
-	ghclient "github.com/smg247/prow-agent-eval/pkg/github"
 	"github.com/smg247/prow-agent-eval/pkg/judge"
 	"github.com/smg247/prow-agent-eval/pkg/report"
 	"github.com/smg247/prow-agent-eval/pkg/shared"
@@ -183,7 +182,7 @@ func judgeCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName,
 		return nil, judge.CaseEvidence{}, err
 	}
 
-	client, err := ghclient.NewClient(token, repo)
+	client, err := deps.NewGitHubClient(token, repo)
 	if err != nil {
 		return nil, judge.CaseEvidence{}, err
 	}

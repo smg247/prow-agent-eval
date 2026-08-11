@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	ghclient "github.com/smg247/prow-agent-eval/pkg/github"
 	"github.com/smg247/prow-agent-eval/pkg/shared"
 	"github.com/spf13/cobra"
 )
@@ -62,7 +61,7 @@ func cleanupCase(ctx context.Context, caseName, token string) {
 		return
 	}
 
-	client, err := ghclient.NewClient(token, repo)
+	client, err := deps.NewGitHubClient(token, repo)
 	if err != nil {
 		slog.Warn("could not create GitHub client", "case", caseName, "error", err)
 		return

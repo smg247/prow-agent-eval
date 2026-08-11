@@ -1,0 +1,33 @@
+name: solve-eval
+description: Integration fixture for jira-solver style initial solve eval
+init:
+  repo: acme/widget
+dataset:
+  path: cases
+collect:
+  bot_replies: false
+  comment_map: false
+  build_result: false
+  test_result: false
+  expected_branch_diff: true
+judges:
+  - name: branch_created
+    description: Agent branch exists
+    type: branch_created
+  - name: pr_exists
+    description: PR was created
+    type: pr_exists
+  - name: file_overlap
+    description: Changed files overlap expected branch
+    type: file_overlap
+  - name: expected_files_changed
+    description: Annotated expected files were changed
+    type: expected_files_changed
+  - name: no_secrets
+    description: No secrets leaked
+    type: no_secrets
+thresholds:
+  file_overlap:
+    min_pass_rate: 1.0
+  expected_files_changed:
+    min_pass_rate: 1.0
