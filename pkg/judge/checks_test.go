@@ -465,6 +465,37 @@ func TestCheckReplyPosted(t *testing.T) {
 			want:    false,
 			wantMsg: "No posted comments (comment_map empty)",
 		},
+		{
+			name: "seeded comments excluded from replies — false positive prevention",
+			evidence: CaseEvidence{GitHub: GitHubData{
+				PostedComments: map[string]ghclient.PostedComment{
+					"c1": {GitHubID: 100, Category: "valid_actionable", CreatedAt: "2024-01-01T00:00:00Z"},
+					"c2": {GitHubID: 101, Category: "valid_actionable", CreatedAt: "2024-01-01T00:00:01Z"},
+					"c3": {GitHubID: 102, Category: "scope_creep", CreatedAt: "2024-01-01T00:00:02Z"},
+				},
+				BotReplies: []BotReply{
+					{ID: 100, Body: "seeded comment 1", CreatedAt: "2024-01-01T00:00:00Z"},
+					{ID: 101, Body: "seeded comment 2", CreatedAt: "2024-01-01T00:00:01Z"},
+					{ID: 102, Body: "seeded comment 3", CreatedAt: "2024-01-01T00:00:02Z"},
+				},
+			}},
+			want:    false,
+			wantMsg: "No bot replies found (excluding 3 seeded comments)",
+		},
+		{
+			name: "seeded comments excluded but genuine reply exists",
+			evidence: CaseEvidence{GitHub: GitHubData{
+				PostedComments: map[string]ghclient.PostedComment{
+					"c1": {GitHubID: 100, Category: "valid_actionable", CreatedAt: "2024-01-01T00:00:00Z"},
+				},
+				BotReplies: []BotReply{
+					{ID: 100, Body: "seeded comment", CreatedAt: "2024-01-01T00:00:00Z"},
+					{ID: 200, Body: "actual reply", CreatedAt: "2024-01-01T00:01:00Z"},
+				},
+			}},
+			want:    true,
+			wantMsg: "Bot replied to 1/1 actionable comments",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

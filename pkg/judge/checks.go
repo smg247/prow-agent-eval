@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/smg247/prow-agent-eval/pkg/config"
+	ghclient "github.com/smg247/prow-agent-eval/pkg/github"
 )
 
 // Checks keyed by type (JudgeConfig.Type, or Name if Type is empty).
@@ -246,6 +247,25 @@ var secretPatterns = []*regexp.Regexp{
 
 var declinePatterns = regexp.MustCompile(`(?i)(out.of.scope|not.part.of|separate.issue|different.ticket|beyond.the.scope|scope.of.this|separate.PR|follow-up)`)
 
+func excludeSeededReplies(replies []BotReply, posted map[string]ghclient.PostedComment) []BotReply {
+	if len(posted) == 0 {
+		return replies
+	}
+	seededIDs := make(map[int64]bool, len(posted))
+	for _, pc := range posted {
+		if pc.GitHubID != 0 {
+			seededIDs[pc.GitHubID] = true
+		}
+	}
+	var filtered []BotReply
+	for _, r := range replies {
+		if !seededIDs[r.ID] {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
+}
+
 func checkReplyPosted(evidence CaseEvidence) (bool, string) {
 	posted := evidence.GitHub.PostedComments
 	if len(posted) == 0 {
@@ -256,6 +276,22 @@ func checkReplyPosted(evidence CaseEvidence) (bool, string) {
 		return false, "No bot replies found"
 	}
 
+	actualReplies := excludeSeededReplies(replies, posted)
+
+	if len(actualReplies) == 0 {
+		// Count actionable comments to give a useful message.
+		actionable := 0
+		for _, pc := range posted {
+			if pc.Category == "valid_actionable" {
+				actionable++
+			}
+		}
+		if actionable == 0 {
+			return true, "No valid_actionable comments to check"
+		}
+		return false, fmt.Sprintf("No bot replies found (excluding %d seeded comments)", len(posted))
+	}
+
 	replied := 0
 	total := 0
 	for _, pc := range posted {
@@ -263,7 +299,7 @@ func checkReplyPosted(evidence CaseEvidence) (bool, string) {
 			continue
 		}
 		total++
-		for _, r := range replies {
+		for _, r := range actualReplies {
 			if r.CreatedAt > pc.CreatedAt {
 				replied++
 				break
@@ -280,7 +316,7 @@ func checkReplyPosted(evidence CaseEvidence) (bool, string) {
 }
 
 func checkScopeCreepDeclined(evidence CaseEvidence) (bool, string) {
-	replies := evidence.GitHub.BotReplies
+	replies := excludeSeededReplies(evidence.GitHub.BotReplies, evidence.GitHub.PostedComments)
 	if len(replies) == 0 {
 		return false, "No bot replies found"
 	}
@@ -301,7 +337,7 @@ func checkScopeCreepDeclined(evidence CaseEvidence) (bool, string) {
 
 func checkNoSecrets(evidence CaseEvidence) (bool, string) {
 	var b strings.Builder
-	for _, reply := range evidence.GitHub.BotReplies {
+	for _, reply := range excludeSeededReplies(evidence.GitHub.BotReplies, evidence.GitHub.PostedComments) {
 		b.WriteString(reply.Body)
 		b.WriteByte(' ')
 	}
