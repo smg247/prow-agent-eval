@@ -190,12 +190,15 @@ func setupEvalBranch(ctx context.Context, cfg *config.EvalConfig, c *config.Case
 		return fmt.Errorf("pushing eval branch: %w", err)
 	}
 
-	botLogin, err := client.GetBotLogin(ctx)
-	if err != nil {
-		if cfg.Collect.BotReplies {
-			return fmt.Errorf("getting bot login (required for bot_replies): %w", err)
+	botLogin := readBotLoginFromSharedDir(initFlags.sharedDir)
+	if botLogin == "" {
+		botLogin, err = client.GetBotLogin(ctx)
+		if err != nil {
+			if cfg.Collect.BotReplies {
+				return fmt.Errorf("getting bot login (required for bot_replies): %w", err)
+			}
+			slog.Warn("could not get bot login", "case", c.Name, "error", err)
 		}
-		slog.Warn("could not get bot login", "case", c.Name, "error", err)
 	}
 
 	meta.HeadBranch = evalBranch
@@ -280,4 +283,12 @@ func writeCaseFiles(sharedDir string, c *config.Case) error {
 	}
 
 	return nil
+}
+
+func readBotLoginFromSharedDir(sharedDir string) string {
+	data, err := os.ReadFile(filepath.Join(sharedDir, "gh-app-bot-login"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
