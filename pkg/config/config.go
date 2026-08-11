@@ -38,7 +38,7 @@ type CollectConfig struct {
 type JudgeConfig struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-	// Type selects a builtin judge. If empty, Name is used as the type.
+	// Type selects a check. If empty, Name is used as the type.
 	Type string `yaml:"type"`
 }
 

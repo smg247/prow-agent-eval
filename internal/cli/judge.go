@@ -67,15 +67,16 @@ func runJudge(cmd *cobra.Command, args []string) error {
 	slog.Info("judging cases", "count", len(caseNames))
 
 	type caseResult struct {
-		name    string
-		results []judge.Result
-		outputs judge.Outputs
+		name     string
+		results  []judge.Result
+		evidence judge.CaseEvidence
+		ok       bool
 	}
 	var allCases []caseResult
 	var allResults []judge.Result
 	caseErrors := 0
 	for _, caseName := range caseNames {
-		results, outputs, err := judgeCase(ctx, cfg, configDir, caseName, token)
+		results, evidence, err := judgeCase(ctx, cfg, configDir, caseName, token)
 		if err != nil {
 			slog.Error("case error", "case", caseName, "error", err)
 			caseErrors++
@@ -92,24 +93,24 @@ func runJudge(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		saveBuildTestLogs(judgeArtifactDir, caseName, outputs)
+		saveBuildTestLogs(judgeArtifactDir, caseName, evidence)
 
-		if err := report.WriteCaseYAML(judgeArtifactDir, caseName, results, outputs); err != nil {
+		if err := report.WriteCaseYAML(judgeArtifactDir, caseName, results, evidence); err != nil {
 			slog.Warn("failed to write case YAML", "case", caseName, "error", err)
 		}
 
-		allCases = append(allCases, caseResult{name: caseName, results: results, outputs: outputs})
+		allCases = append(allCases, caseResult{name: caseName, results: results, evidence: evidence, ok: true})
 		allResults = append(allResults, results...)
 	}
 
 	thresholds := judge.ApplyThresholds(allResults, cfg.Thresholds)
 
 	caseResultMap := make(map[string][]judge.Result)
-	caseOutputsMap := make(map[string]judge.Outputs)
+	caseEvidenceMap := make(map[string]judge.CaseEvidence)
 	for _, cr := range allCases {
 		caseResultMap[cr.name] = cr.results
-		if cr.outputs != nil {
-			caseOutputsMap[cr.name] = cr.outputs
+		if cr.ok {
+			caseEvidenceMap[cr.name] = cr.evidence
 		}
 	}
 
@@ -119,7 +120,7 @@ func runJudge(cmd *cobra.Command, args []string) error {
 	if err := report.WriteSummaryYAML(judgeArtifactDir, cfg.Name, len(caseNames), allResults, thresholds); err != nil {
 		slog.Warn("failed to write summary YAML", "error", err)
 	}
-	if err := report.WriteHTML(judgeArtifactDir, cfg.Name, caseResultMap, thresholds, caseOutputsMap); err != nil {
+	if err := report.WriteHTML(judgeArtifactDir, cfg.Name, caseResultMap, thresholds, caseEvidenceMap); err != nil {
 		slog.Warn("failed to write HTML report", "error", err)
 	}
 
@@ -147,57 +148,55 @@ func runJudge(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func saveBuildTestLogs(artifactDir, caseName string, outputs judge.Outputs) {
-	for _, key := range []string{"build_result", "test_result"} {
-		res, _ := outputs[key].(map[string]any)
-		if res == nil {
+func saveBuildTestLogs(artifactDir, caseName string, evidence judge.CaseEvidence) {
+	type logFile struct {
+		suffix string
+		result judge.MakeResult
+	}
+	for _, lf := range []logFile{
+		{suffix: "build", result: evidence.BuildResult},
+		{suffix: "test", result: evidence.TestResult},
+	} {
+		if !lf.result.Collected || lf.result.Output == "" {
 			continue
 		}
-		output, _ := res["output"].(string)
-		if output == "" {
-			continue
-		}
-		suffix := "build"
-		if key == "test_result" {
-			suffix = "test"
-		}
-		path := filepath.Join(artifactDir, caseName+"-"+suffix+".log")
-		if err := os.WriteFile(path, []byte(output), 0o600); err != nil {
+		path := filepath.Join(artifactDir, caseName+"-"+lf.suffix+".log")
+		if err := os.WriteFile(path, []byte(lf.result.Output), 0o600); err != nil {
 			slog.Warn("failed to write log", "file", path, "error", err)
 		}
 	}
 }
 
-func judgeCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, token string) ([]judge.Result, judge.Outputs, error) {
+func judgeCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName, token string) ([]judge.Result, judge.CaseEvidence, error) {
 	meta, err := shared.ReadCaseMetadata(judgeFlags.sharedDir, caseName)
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading metadata: %w", err)
+		return nil, judge.CaseEvidence{}, fmt.Errorf("reading metadata: %w", err)
 	}
 
 	c, err := config.LoadCase(configDir, cfg.Dataset.Path, caseName)
 	if err != nil {
-		return nil, nil, fmt.Errorf("loading case: %w", err)
+		return nil, judge.CaseEvidence{}, fmt.Errorf("loading case: %w", err)
 	}
 
 	repo, err := resolveRepo(cfg.Init.Repo, meta.Repo)
 	if err != nil {
-		return nil, nil, err
+		return nil, judge.CaseEvidence{}, err
 	}
 
 	client, err := ghclient.NewClient(token, repo)
 	if err != nil {
-		return nil, nil, err
+		return nil, judge.CaseEvidence{}, err
 	}
 
 	slog.Info("collecting data", "case", caseName)
 
 	cloneDir, err := os.MkdirTemp("", "prow-agent-eval-judge-*")
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating temp dir: %w", err)
+		return nil, judge.CaseEvidence{}, fmt.Errorf("creating temp dir: %w", err)
 	}
 	defer os.RemoveAll(cloneDir)
 
-	outputs, err := judge.Collect(ctx, judge.CollectOptions{
+	evidence, err := judge.Collect(ctx, judge.CollectOptions{
 		Config:    cfg,
 		Case:      c,
 		Meta:      meta,
@@ -207,14 +206,14 @@ func judgeCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName,
 		SharedDir: judgeFlags.sharedDir,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("collecting data: %w", err)
+		return nil, judge.CaseEvidence{}, fmt.Errorf("collecting data: %w", err)
 	}
 
 	slog.Info("running judges", "case", caseName)
 
-	results, err := judge.Run(cfg.Judges, outputs)
+	results, err := judge.Run(cfg.Judges, evidence)
 	if err != nil {
-		return nil, nil, fmt.Errorf("running judges: %w", err)
+		return nil, judge.CaseEvidence{}, fmt.Errorf("running judges: %w", err)
 	}
 
 	for _, r := range results {
@@ -227,5 +226,5 @@ func judgeCase(ctx context.Context, cfg *config.EvalConfig, configDir, caseName,
 		slog.Info("judge status", "case", caseName, "judge", r.Name, "status", status, "message", r.Message)
 	}
 
-	return results, outputs, nil
+	return results, evidence, nil
 }

@@ -117,12 +117,12 @@ func TestEvaluateGate(t *testing.T) {
 	}
 }
 
-func TestRunBuiltinByType(t *testing.T) {
+func TestRunByType(t *testing.T) {
 	tests := []struct {
-		name   string
-		judges []config.JudgeConfig
-		outs   Outputs
-		want   []Result
+		name     string
+		judges   []config.JudgeConfig
+		evidence CaseEvidence
+		want     []Result
 	}{
 		{
 			name: "known and unknown types",
@@ -130,8 +130,8 @@ func TestRunBuiltinByType(t *testing.T) {
 				{Name: "compiles", Type: "build_passed"},
 				{Name: "unknown", Type: "nope"},
 			},
-			outs: Outputs{
-				"build_result": map[string]any{"passed": true, "output": "ok"},
+			evidence: CaseEvidence{
+				BuildResult: MakeResult{Collected: true, Passed: true, Output: "ok"},
 			},
 			want: []Result{
 				{Name: "compiles", Passed: true, Message: "passed"},
@@ -141,7 +141,7 @@ func TestRunBuiltinByType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Run(tt.judges, tt.outs)
+			got, err := Run(tt.judges, tt.evidence)
 			if err != nil {
 				t.Fatalf("Run() unexpected error: %v", err)
 			}

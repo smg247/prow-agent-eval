@@ -15,9 +15,7 @@ type Result struct {
 	Error       string
 }
 
-type Outputs map[string]any
-
-func Run(judges []config.JudgeConfig, outputs Outputs) ([]Result, error) {
+func Run(judges []config.JudgeConfig, evidence CaseEvidence) ([]Result, error) {
 	var results []Result
 
 	for _, j := range judges {
@@ -33,7 +31,7 @@ func Run(judges []config.JudgeConfig, outputs Outputs) ([]Result, error) {
 		if typ == "" {
 			result.Error = "judge has no type or name"
 		} else {
-			passed, msg, err := runBuiltin(typ, outputs)
+			passed, msg, err := runCheck(typ, evidence)
 			if err != nil {
 				result.Error = err.Error()
 				slog.Error("judge errored", "judge", j.Name, "error", err)

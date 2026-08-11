@@ -144,10 +144,10 @@ type htmlResult struct {
 	IconClass string
 }
 
-func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thresholds []judge.ThresholdResult, caseOutputs ...map[string]judge.Outputs) error {
-	var outputsMap map[string]judge.Outputs
-	if len(caseOutputs) > 0 {
-		outputsMap = caseOutputs[0]
+func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thresholds []judge.ThresholdResult, caseEvidence ...map[string]judge.CaseEvidence) error {
+	var evidenceMap map[string]judge.CaseEvidence
+	if len(caseEvidence) > 0 {
+		evidenceMap = caseEvidence[0]
 	}
 
 	caseNames := make([]string, 0, len(caseResults))
@@ -213,9 +213,9 @@ func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thre
 			hc.Results = append(hc.Results, hr)
 		}
 
-		if outputsMap != nil {
-			if outputs, ok := outputsMap[caseName]; ok {
-				populateCaseLinks(&hc, outputs)
+		if evidenceMap != nil {
+			if evidence, ok := evidenceMap[caseName]; ok {
+				populateCaseLinks(&hc, evidence)
 			}
 		}
 
@@ -246,38 +246,19 @@ func WriteHTML(dir, evalName string, caseResults map[string][]judge.Result, thre
 	return tmpl.Execute(f, data)
 }
 
-func populateCaseLinks(hc *htmlCase, outputs judge.Outputs) {
-	gh, _ := outputs["github"].(map[string]any)
-	if gh == nil {
-		return
-	}
-
-	repo, _ := gh["repo"].(string)
-	baseBranch, _ := gh["base_branch"].(string)
-	expectedBranch, _ := gh["expected_branch"].(string)
-	agentBranch, _ := gh["agent_branch"].(string)
-
-	prNum := 0
-	switch n := gh["pr_number"].(type) {
-	case int:
-		prNum = n
-	case int64:
-		prNum = int(n)
-	case float64:
-		prNum = int(n)
-	}
-
-	if repo != "" && prNum > 0 {
-		hc.PRNumber = prNum
-		hc.PRURL = fmt.Sprintf("https://github.com/%s/pull/%d", repo, prNum)
+func populateCaseLinks(hc *htmlCase, evidence judge.CaseEvidence) {
+	gh := evidence.GitHub
+	if gh.Repo != "" && gh.PRNumber > 0 {
+		hc.PRNumber = gh.PRNumber
+		hc.PRURL = fmt.Sprintf("https://github.com/%s/pull/%d", gh.Repo, gh.PRNumber)
 		hc.HasLinks = true
 	}
-	if repo != "" && baseBranch != "" && expectedBranch != "" {
-		hc.ExpectedDiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, expectedBranch)
+	if gh.Repo != "" && gh.BaseBranch != "" && gh.ExpectedBranch != "" {
+		hc.ExpectedDiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", gh.Repo, gh.BaseBranch, gh.ExpectedBranch)
 		hc.HasLinks = true
 	}
-	if repo != "" && baseBranch != "" && agentBranch != "" {
-		hc.AgentDiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, agentBranch)
+	if gh.Repo != "" && gh.BaseBranch != "" && gh.AgentBranch != "" {
+		hc.AgentDiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", gh.Repo, gh.BaseBranch, gh.AgentBranch)
 		hc.HasLinks = true
 	}
 }

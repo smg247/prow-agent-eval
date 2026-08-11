@@ -14,24 +14,24 @@ type checkOutcome struct {
 
 func TestCheckBranchCreated(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		want bool
+		name     string
+		evidence CaseEvidence
+		want     bool
 	}{
 		{
-			name: "agent branch set",
-			outs: Outputs{"github": map[string]any{"agent_branch": "feature-x"}},
-			want: true,
+			name:     "agent branch set",
+			evidence: CaseEvidence{GitHub: GitHubData{AgentBranch: "feature-x"}},
+			want:     true,
 		},
 		{
-			name: "main fails",
-			outs: Outputs{"github": map[string]any{"agent_branch": "main"}},
-			want: false,
+			name:     "main fails",
+			evidence: CaseEvidence{GitHub: GitHubData{AgentBranch: "main"}},
+			want:     false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := checkBranchCreated(tt.outs)
+			got, _ := checkBranchCreated(tt.evidence)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkBranchCreated() mismatch (-want +got):\n%s", diff)
 			}
@@ -41,24 +41,24 @@ func TestCheckBranchCreated(t *testing.T) {
 
 func TestCheckPRExists(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		want bool
+		name     string
+		evidence CaseEvidence
+		want     bool
 	}{
 		{
-			name: "pr number set",
-			outs: Outputs{"github": map[string]any{"pr_number": 12}},
-			want: true,
+			name:     "pr number set",
+			evidence: CaseEvidence{GitHub: GitHubData{PRNumber: 12}},
+			want:     true,
 		},
 		{
-			name: "zero pr number",
-			outs: Outputs{"github": map[string]any{"pr_number": 0}},
-			want: false,
+			name:     "zero pr number",
+			evidence: CaseEvidence{GitHub: GitHubData{PRNumber: 0}},
+			want:     false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := checkPRExists(tt.outs)
+			got, _ := checkPRExists(tt.evidence)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkPRExists() mismatch (-want +got):\n%s", diff)
 			}
@@ -68,38 +68,38 @@ func TestCheckPRExists(t *testing.T) {
 
 func TestCheckFileOverlap(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		want bool
+		name     string
+		evidence CaseEvidence
+		want     bool
 	}{
 		{
 			name: "identical files",
-			outs: Outputs{"github": map[string]any{
-				"changed_files":          []string{"a.go", "b.go"},
-				"expected_changed_files": []string{"a.go", "b.go"},
+			evidence: CaseEvidence{GitHub: GitHubData{
+				ChangedFiles:         []string{"a.go", "b.go"},
+				ExpectedChangedFiles: []string{"a.go", "b.go"},
 			}},
 			want: true,
 		},
 		{
 			name: "jaccard about 0.33 passes",
-			outs: Outputs{"github": map[string]any{
-				"changed_files":          []string{"a.go", "b.go"},
-				"expected_changed_files": []string{"a.go", "c.go"},
+			evidence: CaseEvidence{GitHub: GitHubData{
+				ChangedFiles:         []string{"a.go", "b.go"},
+				ExpectedChangedFiles: []string{"a.go", "c.go"},
 			}},
 			want: true,
 		},
 		{
 			name: "low overlap fails",
-			outs: Outputs{"github": map[string]any{
-				"changed_files":          []string{"a.go"},
-				"expected_changed_files": []string{"b.go", "c.go", "d.go"},
+			evidence: CaseEvidence{GitHub: GitHubData{
+				ChangedFiles:         []string{"a.go"},
+				ExpectedChangedFiles: []string{"b.go", "c.go", "d.go"},
 			}},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := checkFileOverlap(tt.outs)
+			got, _ := checkFileOverlap(tt.evidence)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkFileOverlap() mismatch (-want +got):\n%s", diff)
 			}
@@ -109,38 +109,38 @@ func TestCheckFileOverlap(t *testing.T) {
 
 func TestCheckExpectedFilesChanged(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		want bool
+		name     string
+		evidence CaseEvidence
+		want     bool
 	}{
 		{
 			name: "expected file present",
-			outs: Outputs{
-				"annotations": config.CaseAnnotations{
+			evidence: CaseEvidence{
+				Annotations: config.CaseAnnotations{
 					"expected_files": map[string]any{
 						"c1": []any{"pkg/a.go"},
 					},
 				},
-				"github": map[string]any{"changed_files": []string{"pkg/a.go", "pkg/b.go"}},
+				GitHub: GitHubData{ChangedFiles: []string{"pkg/a.go", "pkg/b.go"}},
 			},
 			want: true,
 		},
 		{
 			name: "expected file missing",
-			outs: Outputs{
-				"annotations": config.CaseAnnotations{
+			evidence: CaseEvidence{
+				Annotations: config.CaseAnnotations{
 					"expected_files": map[string]any{
 						"c1": []any{"pkg/missing.go"},
 					},
 				},
-				"github": map[string]any{"changed_files": []string{"pkg/a.go"}},
+				GitHub: GitHubData{ChangedFiles: []string{"pkg/a.go"}},
 			},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := checkExpectedFilesChanged(tt.outs)
+			got, _ := checkExpectedFilesChanged(tt.evidence)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkExpectedFilesChanged() mismatch (-want +got):\n%s", diff)
 			}
@@ -150,34 +150,34 @@ func TestCheckExpectedFilesChanged(t *testing.T) {
 
 func TestCheckPRDescriptionExists(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		want bool
+		name     string
+		evidence CaseEvidence
+		want     bool
 	}{
 		{
-			name: "pr body set",
-			outs: Outputs{"github": map[string]any{"pr_body": "fixes the bug"}},
-			want: true,
+			name:     "pr body set",
+			evidence: CaseEvidence{GitHub: GitHubData{PRBody: "fixes the bug"}},
+			want:     true,
 		},
 		{
-			name: "empty pr body",
-			outs: Outputs{"github": map[string]any{"pr_body": ""}},
-			want: false,
+			name:     "empty pr body",
+			evidence: CaseEvidence{GitHub: GitHubData{PRBody: ""}},
+			want:     false,
 		},
 		{
-			name: "pr description file flag",
-			outs: Outputs{"github": map[string]any{"pr_description_file": true}},
-			want: true,
+			name:     "pr description file flag",
+			evidence: CaseEvidence{GitHub: GitHubData{PRDescriptionFile: true}},
+			want:     true,
 		},
 		{
-			name: "no description",
-			outs: Outputs{"github": map[string]any{}},
-			want: false,
+			name:     "no description",
+			evidence: CaseEvidence{},
+			want:     false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := checkPRDescriptionExists(tt.outs)
+			got, _ := checkPRDescriptionExists(tt.evidence)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkPRDescriptionExists() mismatch (-want +got):\n%s", diff)
 			}
@@ -187,37 +187,39 @@ func TestCheckPRDescriptionExists(t *testing.T) {
 
 func TestCheckDiffSizeRatio(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		want checkOutcome
+		name     string
+		evidence CaseEvidence
+		want     checkOutcome
 	}{
 		{
 			name: "equal sizes",
-			outs: Outputs{"github": map[string]any{
-				"agent_diff_lines":    50,
-				"expected_diff_lines": 50,
+			evidence: CaseEvidence{GitHub: GitHubData{
+				AgentDiffLines:    50,
+				ExpectedDiffLines: 50,
+				HasExpectedDiff:   true,
 			}},
 			want: checkOutcome{OK: true, Msg: "Diff size ratio: 1.00"},
 		},
 		{
 			name: "ratio too small",
-			outs: Outputs{"github": map[string]any{
-				"agent_diff_lines":    1,
-				"expected_diff_lines": 100,
+			evidence: CaseEvidence{GitHub: GitHubData{
+				AgentDiffLines:    1,
+				ExpectedDiffLines: 100,
+				HasExpectedDiff:   true,
 			}},
 			want: checkOutcome{OK: false},
 		},
 		{
 			name: "no expected diff",
-			outs: Outputs{"github": map[string]any{
-				"agent_diff_lines": 10,
+			evidence: CaseEvidence{GitHub: GitHubData{
+				AgentDiffLines: 10,
 			}},
 			want: checkOutcome{OK: true, Msg: "N/A (no expected diff)"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, msg := checkDiffSizeRatio(tt.outs)
+			ok, msg := checkDiffSizeRatio(tt.evidence)
 			got := checkOutcome{OK: ok, Msg: msg}
 			opts := []cmp.Option{}
 			if tt.want.Msg == "" {
@@ -239,38 +241,39 @@ func TestCheckFunctionOverlap(t *testing.T) {
 +more code`
 
 	tests := []struct {
-		name string
-		outs Outputs
-		want bool
+		name     string
+		evidence CaseEvidence
+		want     bool
 	}{
 		{
 			name: "identical diffs",
-			outs: Outputs{"github": map[string]any{
-				"full_diff":          diff,
-				"expected_full_diff": diff,
+			evidence: CaseEvidence{GitHub: GitHubData{
+				FullDiff:         diff,
+				ExpectedFullDiff: diff,
+				HasExpectedDiff:  true,
 			}},
 			want: true,
 		},
 		{
 			name: "zero overlap",
-			outs: Outputs{"github": map[string]any{
-				"full_diff":          `@@ -10,3 +10,5 @@ func Foo` + "\n+code",
-				"expected_full_diff": `@@ -10,3 +10,5 @@ func Bar` + "\n+code",
+			evidence: CaseEvidence{GitHub: GitHubData{
+				FullDiff:         `@@ -10,3 +10,5 @@ func Foo` + "\n+code",
+				ExpectedFullDiff: `@@ -10,3 +10,5 @@ func Bar` + "\n+code",
+				HasExpectedDiff:  true,
 			}},
 			want: false,
 		},
 		{
 			name: "no expected diff",
-			outs: Outputs{"github": map[string]any{
-				"full_diff":          "just a change",
-				"expected_full_diff": "",
+			evidence: CaseEvidence{GitHub: GitHubData{
+				FullDiff: "just a change",
 			}},
 			want: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := checkFunctionOverlap(tt.outs)
+			got, _ := checkFunctionOverlap(tt.evidence)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkFunctionOverlap() mismatch (-want +got):\n%s", diff)
 			}
@@ -307,40 +310,42 @@ func TestExtractFunctions(t *testing.T) {
 
 func TestCheckMakeResult(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		key  string
-		want checkOutcome
+		name   string
+		result MakeResult
+		label  string
+		want   checkOutcome
 	}{
 		{
 			name: "passed cleans message",
-			outs: Outputs{"build_result": map[string]any{
-				"passed": true,
-				"output": "go: writing stat cache: permission denied\nok",
-			}},
-			key:  "build_result",
-			want: checkOutcome{OK: true, Msg: "passed"},
+			result: MakeResult{
+				Collected: true,
+				Passed:    true,
+				Output:    "go: writing stat cache: permission denied\nok",
+			},
+			label: "build_result",
+			want:  checkOutcome{OK: true, Msg: "passed"},
 		},
 		{
 			name: "failed includes error",
-			outs: Outputs{"build_result": map[string]any{
-				"passed": false,
-				"error":  "exit status 1",
-				"output": "compilation error on line 42",
-			}},
-			key:  "build_result",
-			want: checkOutcome{OK: false, Msg: "failed: exit status 1"},
+			result: MakeResult{
+				Collected: true,
+				Passed:    false,
+				Error:     "exit status 1",
+				Output:    "compilation error on line 42",
+			},
+			label: "build_result",
+			want:  checkOutcome{OK: false, Msg: "failed: exit status 1"},
 		},
 		{
-			name: "missing result",
-			outs: Outputs{},
-			key:  "build_result",
-			want: checkOutcome{OK: false, Msg: "build_result not collected"},
+			name:   "missing result",
+			result: MakeResult{},
+			label:  "build_result",
+			want:   checkOutcome{OK: false, Msg: "build_result not collected"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, msg := checkMakeResult(tt.outs, tt.key)
+			ok, msg := checkMakeResult(tt.result, tt.label)
 			got := checkOutcome{OK: ok, Msg: msg}
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkMakeResult() mismatch (-want +got):\n%s", diff)
@@ -351,29 +356,29 @@ func TestCheckMakeResult(t *testing.T) {
 
 func TestCheckNoSecrets(t *testing.T) {
 	tests := []struct {
-		name string
-		outs Outputs
-		want bool
+		name     string
+		evidence CaseEvidence
+		want     bool
 	}{
 		{
 			name: "clean content",
-			outs: Outputs{"github": map[string]any{
-				"bot_replies": []map[string]any{{"body": "looks fine"}},
-				"full_diff":   "diff --git a/x",
+			evidence: CaseEvidence{GitHub: GitHubData{
+				BotReplies: []BotReply{{Body: "looks fine"}},
+				FullDiff:   "diff --git a/x",
 			}},
 			want: true,
 		},
 		{
 			name: "github token",
-			outs: Outputs{"github": map[string]any{
-				"full_diff": "token ghp_abcdefghijklmnopqrstuv",
+			evidence: CaseEvidence{GitHub: GitHubData{
+				FullDiff: "token ghp_abcdefghijklmnopqrstuv",
 			}},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := checkNoSecrets(tt.outs)
+			got, _ := checkNoSecrets(tt.evidence)
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("checkNoSecrets() mismatch (-want +got):\n%s", diff)
 			}

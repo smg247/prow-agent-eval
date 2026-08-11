@@ -17,7 +17,7 @@ type SeededComment struct {
 	Side     string `json:"side"`
 }
 
-type CommentMapEntry struct {
+type PostedComment struct {
 	GitHubID  int64  `json:"github_id"`
 	Category  string `json:"category"`
 	CreatedAt string `json:"created_at"`
@@ -61,8 +61,8 @@ func (c *Client) PostPRReviewComment(ctx context.Context, number int, body, path
 	return comment, nil
 }
 
-func (c *Client) SeedComments(ctx context.Context, prNumber int, comments []SeededComment) (map[string]CommentMapEntry, error) {
-	commentMap := make(map[string]CommentMapEntry)
+func (c *Client) SeedComments(ctx context.Context, prNumber int, comments []SeededComment) (map[string]PostedComment, error) {
+	posted := make(map[string]PostedComment)
 
 	for i, sc := range comments {
 		key := fmt.Sprintf("comment-%03d", i+1)
@@ -71,7 +71,7 @@ func (c *Client) SeedComments(ctx context.Context, prNumber int, comments []Seed
 			if err != nil {
 				return nil, fmt.Errorf("seeding inline comment %d: %w", i, err)
 			}
-			commentMap[key] = CommentMapEntry{
+			posted[key] = PostedComment{
 				GitHubID:  rc.GetID(),
 				Category:  sc.Category,
 				CreatedAt: rc.GetCreatedAt().String(),
@@ -81,7 +81,7 @@ func (c *Client) SeedComments(ctx context.Context, prNumber int, comments []Seed
 			if err != nil {
 				return nil, fmt.Errorf("seeding issue comment %d: %w", i, err)
 			}
-			commentMap[key] = CommentMapEntry{
+			posted[key] = PostedComment{
 				GitHubID:  ic.GetID(),
 				Category:  sc.Category,
 				CreatedAt: ic.GetCreatedAt().String(),
@@ -89,7 +89,7 @@ func (c *Client) SeedComments(ctx context.Context, prNumber int, comments []Seed
 		}
 	}
 
-	return commentMap, nil
+	return posted, nil
 }
 
 func (c *Client) ListIssueComments(ctx context.Context, number int) ([]*gh.IssueComment, error) {

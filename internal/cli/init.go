@@ -240,12 +240,12 @@ func seedCaseComments(ctx context.Context, c *config.Case, meta *shared.CaseMeta
 		return fmt.Errorf("loading seeded comments: %w", err)
 	}
 
-	commentMap, err := client.SeedComments(ctx, meta.PRNumber, comments)
+	posted, err := client.SeedComments(ctx, meta.PRNumber, comments)
 	if err != nil {
 		return fmt.Errorf("seeding comments: %w", err)
 	}
 
-	mapData, err := json.Marshal(commentMap)
+	mapData, err := json.Marshal(posted)
 	if err != nil {
 		return fmt.Errorf("marshaling comment map: %w", err)
 	}

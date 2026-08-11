@@ -15,7 +15,7 @@ func TestWriteCaseYAML(t *testing.T) {
 		name     string
 		caseName string
 		results  []judge.Result
-		outputs  judge.Outputs
+		evidence judge.CaseEvidence
 		want     CaseReport
 	}{
 		{
@@ -25,11 +25,11 @@ func TestWriteCaseYAML(t *testing.T) {
 				{Name: "check_files", Passed: true, Message: "Jaccard overlap: 0.75"},
 				{Name: "no_secrets", Passed: false, Message: "found secret"},
 			},
-			outputs: judge.Outputs{
-				"github": map[string]any{
-					"agent_branch":  "fix-branch",
-					"changed_files": []string{"a.go", "b.go"},
-					"pr_number":     42,
+			evidence: judge.CaseEvidence{
+				GitHub: judge.GitHubData{
+					AgentBranch:  "fix-branch",
+					ChangedFiles: []string{"a.go", "b.go"},
+					PRNumber:     42,
 				},
 			},
 			want: CaseReport{
@@ -54,13 +54,13 @@ func TestWriteCaseYAML(t *testing.T) {
 			results: []judge.Result{
 				{Name: "pr_exists", Passed: true, Message: "PR #42"},
 			},
-			outputs: judge.Outputs{
-				"github": map[string]any{
-					"repo":            "myorg/myrepo",
-					"pr_number":       42,
-					"agent_branch":    "fix-branch",
-					"base_branch":     "main",
-					"expected_branch": "expected-fix",
+			evidence: judge.CaseEvidence{
+				GitHub: judge.GitHubData{
+					Repo:           "myorg/myrepo",
+					PRNumber:       42,
+					AgentBranch:    "fix-branch",
+					BaseBranch:     "main",
+					ExpectedBranch: "expected-fix",
 				},
 			},
 			want: CaseReport{
@@ -82,7 +82,7 @@ func TestWriteCaseYAML(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := WriteCaseYAML(dir, tt.caseName, tt.results, tt.outputs); err != nil {
+			if err := WriteCaseYAML(dir, tt.caseName, tt.results, tt.evidence); err != nil {
 				t.Fatalf("WriteCaseYAML: %v", err)
 			}
 			data, err := os.ReadFile(filepath.Join(dir, "eval-"+tt.caseName+".yaml"))

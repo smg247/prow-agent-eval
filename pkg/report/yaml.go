@@ -62,42 +62,33 @@ func extractScore(msg string) string {
 	return ""
 }
 
-func WriteCaseYAML(dir, caseName string, results []judge.Result, outputs judge.Outputs) error {
+func WriteCaseYAML(dir, caseName string, results []judge.Result, evidence judge.CaseEvidence) error {
 	report := CaseReport{
 		Case:   caseName,
 		Checks: make(map[string]string),
 	}
 
-	gh, _ := outputs["github"].(map[string]any)
-	if gh != nil {
-		report.ClaudeBranch, _ = gh["agent_branch"].(string)
-		if report.ClaudeBranch == "" {
-			report.ClaudeBranch = "none"
+	gh := evidence.GitHub
+	report.ClaudeBranch = gh.AgentBranch
+	if report.ClaudeBranch == "" {
+		report.ClaudeBranch = "none"
+	}
+	report.ClaudeFilesChanged = gh.ChangedFiles
+	report.ExpectedFilesChanged = gh.ExpectedChangedFiles
+	report.ClaudeDiffLines = gh.AgentDiffLines
+	report.ExpectedDiffLines = gh.ExpectedDiffLines
+	report.BaseBranch = gh.BaseBranch
+	report.ExpectedBranch = gh.ExpectedBranch
+	if gh.PRNumber > 0 {
+		report.PRNumber = strconv.Itoa(gh.PRNumber)
+		if gh.Repo != "" {
+			report.PRURL = fmt.Sprintf("https://github.com/%s/pull/%d", gh.Repo, gh.PRNumber)
 		}
-		report.ClaudeFilesChanged = toStringSlice(gh["changed_files"])
-		report.ExpectedFilesChanged = toStringSlice(gh["expected_changed_files"])
-		if n, ok := gh["agent_diff_lines"].(int); ok {
-			report.ClaudeDiffLines = n
-		}
-		if n, ok := gh["expected_diff_lines"].(int); ok {
-			report.ExpectedDiffLines = n
-		}
-		repo, _ := gh["repo"].(string)
-		baseBranch, _ := gh["base_branch"].(string)
-		expectedBranch, _ := gh["expected_branch"].(string)
-		report.BaseBranch = baseBranch
-		report.ExpectedBranch = expectedBranch
-		if n, ok := gh["pr_number"].(int); ok && n > 0 {
-			report.PRNumber = strconv.Itoa(n)
-			if repo != "" {
-				report.PRURL = fmt.Sprintf("https://github.com/%s/pull/%d", repo, n)
-			}
-		} else {
-			report.PRNumber = "none"
-		}
-		if repo != "" && baseBranch != "" && expectedBranch != "" {
-			report.DiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", repo, baseBranch, expectedBranch)
-		}
+	} else {
+		report.PRNumber = "none"
+	}
+	if gh.Repo != "" && gh.BaseBranch != "" && gh.ExpectedBranch != "" {
+		report.DiffURL = fmt.Sprintf("https://github.com/%s/compare/%s...%s", gh.Repo, gh.BaseBranch, gh.ExpectedBranch)
 	}
 
 	passed := 0
@@ -158,21 +149,4 @@ func WriteSummaryYAML(dir, evalName string, totalCases int, results []judge.Resu
 
 	path := filepath.Join(dir, "eval-summary.yaml")
 	return os.WriteFile(path, data, 0o600)
-}
-
-func toStringSlice(v any) []string {
-	switch t := v.(type) {
-	case []string:
-		return t
-	case []any:
-		out := make([]string, 0, len(t))
-		for _, item := range t {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	default:
-		return nil
-	}
 }

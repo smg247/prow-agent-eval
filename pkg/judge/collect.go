@@ -50,53 +50,53 @@ func validateCollectOptions(opts CollectOptions) error {
 	return nil
 }
 
-func Collect(ctx context.Context, opts CollectOptions) (Outputs, error) {
+func Collect(ctx context.Context, opts CollectOptions) (CaseEvidence, error) {
 	if err := validateCollectOptions(opts); err != nil {
-		return nil, err
+		return CaseEvidence{}, err
 	}
 
-	outputs := make(Outputs)
+	var evidence CaseEvidence
 	if opts.Case.Annotations != nil {
-		outputs["annotations"] = opts.Case.Annotations
+		evidence.Annotations = opts.Case.Annotations
 	}
 
 	repo, err := git.Clone(ctx, opts.Client.CloneURL(), opts.CloneDir, opts.Token)
 	if err != nil {
-		return nil, fmt.Errorf("cloning repo: %w", err)
+		return CaseEvidence{}, fmt.Errorf("cloning repo: %w", err)
 	}
 
 	headBranch, prNumber, err := resolveHead(ctx, opts)
 	if err != nil {
-		return nil, err
+		return CaseEvidence{}, err
 	}
 
 	if err := repo.Fetch(ctx, "origin", headBranch); err != nil {
-		return nil, fmt.Errorf("fetching head branch: %w", err)
+		return CaseEvidence{}, fmt.Errorf("fetching head branch: %w", err)
 	}
 	if err := repo.Checkout(ctx, "origin/"+headBranch); err != nil {
-		return nil, fmt.Errorf("checking out head branch: %w", err)
+		return CaseEvidence{}, fmt.Errorf("checking out head branch: %w", err)
 	}
 
 	fixtureSHA, err := resolveFixtureSHA(ctx, repo, opts.Meta)
 	if err != nil {
-		return nil, err
+		return CaseEvidence{}, err
 	}
 
 	ghData, err := collectGitHubData(ctx, opts, repo, headBranch, fixtureSHA, prNumber)
 	if err != nil {
-		return nil, err
+		return CaseEvidence{}, err
 	}
-	outputs["github"] = ghData
+	evidence.GitHub = ghData
 
 	cfg := opts.Config.Collect
 	if cfg.BuildResult {
-		outputs["build_result"] = runMake(ctx, opts.CloneDir, "build")
+		evidence.BuildResult = runMake(ctx, opts.CloneDir, "build")
 	}
 	if cfg.TestResult {
-		outputs["test_result"] = runMake(ctx, opts.CloneDir, "test")
+		evidence.TestResult = runMake(ctx, opts.CloneDir, "test")
 	}
 
-	return outputs, nil
+	return evidence, nil
 }
 
 func resolveHead(ctx context.Context, opts CollectOptions) (headBranch string, prNumber int, err error) {
@@ -132,31 +132,30 @@ func resolveFixtureSHA(ctx context.Context, repo *git.Repo, meta *shared.CaseMet
 	return fixtureSHA, nil
 }
 
-func collectGitHubData(ctx context.Context, opts CollectOptions, repo *git.Repo, headBranch, fixtureSHA string, prNumber int) (map[string]any, error) {
+func collectGitHubData(ctx context.Context, opts CollectOptions, repo *git.Repo, headBranch, fixtureSHA string, prNumber int) (GitHubData, error) {
 	diff, err := repo.DiffAgainst(ctx, fixtureSHA)
 	if err != nil {
-		return nil, fmt.Errorf("diff against fixture SHA: %w", err)
+		return GitHubData{}, fmt.Errorf("diff against fixture SHA: %w", err)
 	}
 
-	ghData := map[string]any{
-		"changed_files":    diff.ChangedFiles,
-		"full_diff":        diff.FullDiff,
-		"agent_branch":     headBranch,
-		"agent_diff_lines": countDiffLines(diff.FullDiff),
-		"repo":             opts.Client.Owner() + "/" + opts.Client.Repo(),
-		"base_branch":      opts.Meta.BaseBranch,
+	gh := GitHubData{
+		ChangedFiles:   diff.ChangedFiles,
+		FullDiff:       diff.FullDiff,
+		AgentBranch:    headBranch,
+		AgentDiffLines: countDiffLines(diff.FullDiff),
+		Repo:           opts.Client.Owner() + "/" + opts.Client.Repo(),
+		BaseBranch:     opts.Meta.BaseBranch,
 	}
 
-	prNumber = resolvePRNumber(ctx, opts.Client, headBranch, prNumber)
-	ghData["pr_number"] = prNumber
+	gh.PRNumber = resolvePRNumber(ctx, opts.Client, headBranch, prNumber)
 
-	if err := collectPRDetails(ctx, opts, ghData, prNumber); err != nil {
-		return nil, err
+	if err := collectPRDetails(ctx, opts, &gh); err != nil {
+		return GitHubData{}, err
 	}
-	if err := collectOptionalGitHubData(ctx, opts, repo, ghData, fixtureSHA, prNumber); err != nil {
-		return nil, err
+	if err := collectOptionalGitHubData(ctx, opts, repo, &gh, fixtureSHA); err != nil {
+		return GitHubData{}, err
 	}
-	return ghData, nil
+	return gh, nil
 }
 
 func resolvePRNumber(ctx context.Context, client *ghclient.Client, headBranch string, prNumber int) int {
@@ -174,53 +173,53 @@ func resolvePRNumber(ctx context.Context, client *ghclient.Client, headBranch st
 	return pr.GetNumber()
 }
 
-func collectPRDetails(ctx context.Context, opts CollectOptions, ghData map[string]any, prNumber int) error {
-	if prNumber > 0 {
-		pr, err := opts.Client.GetPR(ctx, prNumber)
+func collectPRDetails(ctx context.Context, opts CollectOptions, gh *GitHubData) error {
+	if gh.PRNumber > 0 {
+		pr, err := opts.Client.GetPR(ctx, gh.PRNumber)
 		if err != nil {
-			return fmt.Errorf("fetching PR #%d: %w", prNumber, err)
+			return fmt.Errorf("fetching PR #%d: %w", gh.PRNumber, err)
 		}
-		ghData["pr_state"] = pr.GetState()
-		ghData["pr_body"] = pr.GetBody()
+		gh.PRState = pr.GetState()
+		gh.PRBody = pr.GetBody()
 	} else {
-		ghData["pr_state"] = "none"
+		gh.PRState = "none"
 	}
 
 	descPath := filepath.Join(opts.SharedDir, opts.Meta.CaseName+".pr-description.md")
 	if data, err := os.ReadFile(descPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-		ghData["pr_description_file"] = true
+		gh.PRDescriptionFile = true
 	}
 	return nil
 }
 
-func collectOptionalGitHubData(ctx context.Context, opts CollectOptions, repo *git.Repo, ghData map[string]any, fixtureSHA string, prNumber int) error {
+func collectOptionalGitHubData(ctx context.Context, opts CollectOptions, repo *git.Repo, gh *GitHubData, fixtureSHA string) error {
 	cfg := opts.Config.Collect
 
 	if cfg.BotReplies {
-		replies, err := collectBotReplies(ctx, opts.Client, prNumber, opts.Meta.BotLogin)
+		replies, err := collectBotReplies(ctx, opts.Client, gh.PRNumber, opts.Meta.BotLogin)
 		if err != nil {
 			return err
 		}
-		ghData["bot_replies"] = replies
+		gh.BotReplies = replies
 	}
 
 	if cfg.CommentMap {
-		commentMap, err := loadCommentMap(opts.SharedDir, opts.Meta.CaseName)
+		posted, err := loadPostedComments(opts.SharedDir, opts.Meta.CaseName)
 		if err != nil {
 			return err
 		}
-		ghData["comment_map"] = commentMap
+		gh.PostedComments = posted
 	}
 
 	if cfg.ExpectedBranchDiff {
-		if err := collectExpectedDiff(ctx, repo, opts.Case.Input.ExpectedBranch, fixtureSHA, ghData); err != nil {
+		if err := collectExpectedDiff(ctx, repo, opts.Case.Input.ExpectedBranch, fixtureSHA, gh); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func collectBotReplies(ctx context.Context, client *ghclient.Client, prNumber int, botLogin string) ([]map[string]any, error) {
+func collectBotReplies(ctx context.Context, client *ghclient.Client, prNumber int, botLogin string) ([]BotReply, error) {
 	if prNumber <= 0 {
 		return nil, fmt.Errorf("bot_replies collect requires a PR number")
 	}
@@ -233,45 +232,45 @@ func collectBotReplies(ctx context.Context, client *ghclient.Client, prNumber in
 		return nil, fmt.Errorf("listing PR review comments: %w", err)
 	}
 
-	var botReplies []map[string]any
+	var botReplies []BotReply
 	for _, c := range issueComments {
 		if c.GetUser().GetLogin() == botLogin {
-			botReplies = append(botReplies, map[string]any{
-				"id":         c.GetID(),
-				"body":       c.GetBody(),
-				"created_at": c.GetCreatedAt().String(),
-				"type":       "issue",
+			botReplies = append(botReplies, BotReply{
+				ID:        c.GetID(),
+				Body:      c.GetBody(),
+				CreatedAt: c.GetCreatedAt().String(),
+				Type:      "issue",
 			})
 		}
 	}
 	for _, c := range prComments {
 		if c.GetUser().GetLogin() == botLogin {
-			botReplies = append(botReplies, map[string]any{
-				"id":         c.GetID(),
-				"body":       c.GetBody(),
-				"created_at": c.GetCreatedAt().String(),
-				"path":       c.GetPath(),
-				"type":       "review",
+			botReplies = append(botReplies, BotReply{
+				ID:        c.GetID(),
+				Body:      c.GetBody(),
+				CreatedAt: c.GetCreatedAt().String(),
+				Path:      c.GetPath(),
+				Type:      "review",
 			})
 		}
 	}
 	return botReplies, nil
 }
 
-func loadCommentMap(sharedDir, caseName string) (map[string]any, error) {
+func loadPostedComments(sharedDir, caseName string) (map[string]ghclient.PostedComment, error) {
 	mapPath := filepath.Join(sharedDir, caseName+".comment-map.json")
 	data, err := os.ReadFile(mapPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading comment map: %w", err)
 	}
-	var commentMap map[string]any
-	if err := json.Unmarshal(data, &commentMap); err != nil {
+	var posted map[string]ghclient.PostedComment
+	if err := json.Unmarshal(data, &posted); err != nil {
 		return nil, fmt.Errorf("parsing comment map: %w", err)
 	}
-	return commentMap, nil
+	return posted, nil
 }
 
-func collectExpectedDiff(ctx context.Context, repo *git.Repo, expectedBranch, fixtureSHA string, ghData map[string]any) error {
+func collectExpectedDiff(ctx context.Context, repo *git.Repo, expectedBranch, fixtureSHA string, gh *GitHubData) error {
 	if err := repo.Fetch(ctx, "origin", expectedBranch); err != nil {
 		return fmt.Errorf("fetching expected branch %s: %w", expectedBranch, err)
 	}
@@ -279,10 +278,11 @@ func collectExpectedDiff(ctx context.Context, repo *git.Repo, expectedBranch, fi
 	if err != nil {
 		return fmt.Errorf("diffing fixture against expected branch: %w", err)
 	}
-	ghData["expected_changed_files"] = expectedDiff.ChangedFiles
-	ghData["expected_diff_lines"] = countDiffLines(expectedDiff.FullDiff)
-	ghData["expected_full_diff"] = expectedDiff.FullDiff
-	ghData["expected_branch"] = expectedBranch
+	gh.ExpectedChangedFiles = expectedDiff.ChangedFiles
+	gh.ExpectedDiffLines = countDiffLines(expectedDiff.FullDiff)
+	gh.ExpectedFullDiff = expectedDiff.FullDiff
+	gh.ExpectedBranch = expectedBranch
+	gh.HasExpectedDiff = true
 	return nil
 }
 
@@ -296,7 +296,7 @@ func countDiffLines(diff string) int {
 	return count
 }
 
-func runMake(ctx context.Context, dir, target string) map[string]any {
+func runMake(ctx context.Context, dir, target string) MakeResult {
 	cmd := exec.CommandContext(ctx, "make", target)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
@@ -305,13 +305,13 @@ func runMake(ctx context.Context, dir, target string) map[string]any {
 	if len(output) > maxOutput {
 		output = output[len(output)-maxOutput:]
 	}
-	passed := err == nil
-	result := map[string]any{
-		"passed": passed,
-		"output": strings.TrimSpace(output),
+	result := MakeResult{
+		Collected: true,
+		Passed:    err == nil,
+		Output:    strings.TrimSpace(output),
 	}
 	if err != nil {
-		result["error"] = err.Error()
+		result.Error = err.Error()
 	}
 	return result
 }

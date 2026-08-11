@@ -2,7 +2,7 @@
 
 Go CLI for the agentic eval lifecycle in Prow: **init → (agent) → judge → cleanup**.
 
-It creates eval branches/PRs, collects post-agent git/GitHub state, runs deterministic builtin judges, and emits JUnit/YAML/HTML reports. Step-registry scripts can shrink to thin wrappers around this binary.
+It creates eval branches/PRs, collects post-agent git/GitHub state, runs deterministic judges, and emits JUnit/YAML/HTML reports. Step-registry scripts can shrink to thin wrappers around this binary.
 
 ## Build
 
@@ -88,7 +88,7 @@ cases/my-eval/<case>/
 
 `expected_branch` is required when `collect.expected_branch_diff` is true (golden overlap vs fixture SHA).
 
-### Builtin judges
+### Judges
 
 | `type` | Passes when |
 |--------|-------------|

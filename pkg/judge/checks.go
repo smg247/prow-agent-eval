@@ -8,8 +8,8 @@ import (
 	"github.com/smg247/prow-agent-eval/pkg/config"
 )
 
-// Builtin judges keyed by type (JudgeConfig.Type, or Name if Type is empty).
-var builtins = map[string]func(Outputs) (bool, string){
+// Checks keyed by type (JudgeConfig.Type, or Name if Type is empty).
+var checks = map[string]func(CaseEvidence) (bool, string){
 	"branch_created":         checkBranchCreated,
 	"pr_exists":              checkPRExists,
 	"pr_description_exists":  checkPRDescriptionExists,
@@ -22,32 +22,50 @@ var builtins = map[string]func(Outputs) (bool, string){
 	"no_secrets":             checkNoSecrets,
 }
 
-func runBuiltin(typ string, outputs Outputs) (bool, string, error) {
-	fn, ok := builtins[typ]
+func runCheck(typ string, evidence CaseEvidence) (bool, string, error) {
+	fn, ok := checks[typ]
 	if !ok {
 		return false, "", fmt.Errorf("unknown judge type %q", typ)
 	}
-	passed, msg := fn(outputs)
+	passed, msg := fn(evidence)
 	return passed, msg, nil
 }
 
-func githubMap(outputs Outputs) map[string]any {
-	gh, _ := outputs["github"].(map[string]any)
-	if gh == nil {
-		return map[string]any{}
+func setFromStrings(ss []string) map[string]bool {
+	m := make(map[string]bool, len(ss))
+	for _, s := range ss {
+		m[s] = true
 	}
-	return gh
+	return m
 }
 
-func annotationsMap(outputs Outputs) map[string]any {
-	switch a := outputs["annotations"].(type) {
-	case map[string]any:
-		return a
-	case config.CaseAnnotations:
-		return map[string]any(a)
-	default:
-		return map[string]any{}
+// expectedFiles extracts annotations.expected_files as commentID → paths.
+// Supports map[string][]string shapes (including YAML-decoded []any values).
+// Returns (nil, nil) when the key is absent.
+func expectedFiles(annotations config.CaseAnnotations) (map[string][]string, error) {
+	raw, ok := annotations["expected_files"]
+	if !ok {
+		return nil, nil
 	}
+
+	out := make(map[string][]string)
+	switch expected := raw.(type) {
+	case map[string]any:
+		for commentID, filesVal := range expected {
+			out[commentID] = stringSlice(filesVal)
+		}
+	case config.CaseAnnotations:
+		for commentID, filesVal := range expected {
+			out[commentID] = stringSlice(filesVal)
+		}
+	case []any:
+		out[""] = stringSlice(expected)
+	case []string:
+		out[""] = expected
+	default:
+		return nil, fmt.Errorf("annotations.expected_files has unexpected type")
+	}
+	return out, nil
 }
 
 func stringSlice(v any) []string {
@@ -67,80 +85,54 @@ func stringSlice(v any) []string {
 	}
 }
 
-func setFromStrings(ss []string) map[string]bool {
-	m := make(map[string]bool, len(ss))
-	for _, s := range ss {
-		m[s] = true
-	}
-	return m
-}
-
-func checkBranchCreated(outputs Outputs) (bool, string) {
-	branch, _ := githubMap(outputs)["agent_branch"].(string)
+func checkBranchCreated(evidence CaseEvidence) (bool, string) {
+	branch := evidence.GitHub.AgentBranch
 	if branch == "" || branch == "main" || branch == "master" {
 		return false, fmt.Sprintf("Branch: %s", branch)
 	}
 	return true, fmt.Sprintf("Branch: %s", branch)
 }
 
-func checkPRExists(outputs Outputs) (bool, string) {
-	gh := githubMap(outputs)
-	switch n := gh["pr_number"].(type) {
-	case int:
-		if n > 0 {
-			return true, fmt.Sprintf("PR #%d", n)
-		}
-	case int64:
-		if n > 0 {
-			return true, fmt.Sprintf("PR #%d", n)
-		}
-	case float64:
-		if n > 0 {
-			return true, fmt.Sprintf("PR #%d", int(n))
-		}
+func checkPRExists(evidence CaseEvidence) (bool, string) {
+	if evidence.GitHub.PRNumber > 0 {
+		return true, fmt.Sprintf("PR #%d", evidence.GitHub.PRNumber)
 	}
 	return false, "No PR created"
 }
 
-func checkPRDescriptionExists(outputs Outputs) (bool, string) {
-	gh := githubMap(outputs)
-	body, _ := gh["pr_body"].(string)
-	if strings.TrimSpace(body) != "" {
+func checkPRDescriptionExists(evidence CaseEvidence) (bool, string) {
+	if strings.TrimSpace(evidence.GitHub.PRBody) != "" {
 		return true, "PR description exists"
 	}
-	if _, ok := gh["pr_description_file"]; ok {
+	if evidence.GitHub.PRDescriptionFile {
 		return true, "PR description file exists"
 	}
 	return false, "No PR description"
 }
 
-func checkDiffSizeRatio(outputs Outputs) (bool, string) {
-	gh := githubMap(outputs)
-	agentLines, ok1 := gh["agent_diff_lines"].(int)
-	expectedLines, ok2 := gh["expected_diff_lines"].(int)
-	if !ok1 || !ok2 {
+func checkDiffSizeRatio(evidence CaseEvidence) (bool, string) {
+	gh := evidence.GitHub
+	if !gh.HasExpectedDiff {
 		return true, "N/A (no expected diff)"
 	}
-	if expectedLines == 0 {
-		if agentLines == 0 {
+	if gh.ExpectedDiffLines == 0 {
+		if gh.AgentDiffLines == 0 {
 			return true, "Diff size ratio: N/A (both empty)"
 		}
-		return true, fmt.Sprintf("Diff size ratio: N/A (expected empty, agent=%d)", agentLines)
+		return true, fmt.Sprintf("Diff size ratio: N/A (expected empty, agent=%d)", gh.AgentDiffLines)
 	}
-	ratio := float64(agentLines) / float64(expectedLines)
+	ratio := float64(gh.AgentDiffLines) / float64(gh.ExpectedDiffLines)
 	passed := ratio >= 0.1
 	return passed, fmt.Sprintf("Diff size ratio: %.2f", ratio)
 }
 
-func checkFunctionOverlap(outputs Outputs) (bool, string) {
-	gh := githubMap(outputs)
-	agentDiff, _ := gh["full_diff"].(string)
-	expectedDiff, _ := gh["expected_full_diff"].(string)
-	if expectedDiff == "" {
+func checkFunctionOverlap(evidence CaseEvidence) (bool, string) {
+	gh := evidence.GitHub
+	if !gh.HasExpectedDiff || gh.ExpectedFullDiff == "" {
 		return true, "N/A (no expected diff)"
 	}
-	agentFuncs := extractFunctions(agentDiff)
-	expectedFuncs := extractFunctions(expectedDiff)
+	agentFuncs := extractFunctions(gh.FullDiff)
+	expectedFuncs := extractFunctions(gh.ExpectedFullDiff)
 	if len(agentFuncs) == 0 && len(expectedFuncs) == 0 {
 		return true, "Function overlap: N/A"
 	}
@@ -169,34 +161,31 @@ func extractFunctions(diff string) map[string]bool {
 	return funcs
 }
 
-func checkBuildPassed(outputs Outputs) (bool, string) {
-	return checkMakeResult(outputs, "build_result")
+func checkBuildPassed(evidence CaseEvidence) (bool, string) {
+	return checkMakeResult(evidence.BuildResult, "build_result")
 }
 
-func checkTestPassed(outputs Outputs) (bool, string) {
-	return checkMakeResult(outputs, "test_result")
+func checkTestPassed(evidence CaseEvidence) (bool, string) {
+	return checkMakeResult(evidence.TestResult, "test_result")
 }
 
-func checkMakeResult(outputs Outputs, key string) (bool, string) {
-	res, _ := outputs[key].(map[string]any)
-	if res == nil {
-		return false, key + " not collected"
+func checkMakeResult(result MakeResult, name string) (bool, string) {
+	if !result.Collected {
+		return false, name + " not collected"
 	}
-	passed, _ := res["passed"].(bool)
-	if passed {
+	if result.Passed {
 		return true, "passed"
 	}
-	errMsg, _ := res["error"].(string)
-	if errMsg != "" {
-		return false, "failed: " + errMsg
+	if result.Error != "" {
+		return false, "failed: " + result.Error
 	}
 	return false, "failed"
 }
 
-func checkFileOverlap(outputs Outputs) (bool, string) {
-	gh := githubMap(outputs)
-	changed := setFromStrings(stringSlice(gh["changed_files"]))
-	expected := setFromStrings(stringSlice(gh["expected_changed_files"]))
+func checkFileOverlap(evidence CaseEvidence) (bool, string) {
+	gh := evidence.GitHub
+	changed := setFromStrings(gh.ChangedFiles)
+	expected := setFromStrings(gh.ExpectedChangedFiles)
 	if len(changed) == 0 && len(expected) == 0 {
 		return true, "Both empty (vacuous match)"
 	}
@@ -215,33 +204,27 @@ func checkFileOverlap(outputs Outputs) (bool, string) {
 	return passed, fmt.Sprintf("Jaccard overlap: %.2f", overlap)
 }
 
-func checkExpectedFilesChanged(outputs Outputs) (bool, string) {
-	annotations := annotationsMap(outputs)
-	changed := setFromStrings(stringSlice(githubMap(outputs)["changed_files"]))
-
-	expectedRaw, ok := annotations["expected_files"]
-	if !ok {
+func checkExpectedFilesChanged(evidence CaseEvidence) (bool, string) {
+	filesByComment, err := expectedFiles(evidence.Annotations)
+	if err != nil {
+		return false, err.Error()
+	}
+	if filesByComment == nil {
 		return true, "No expected_files in annotations"
 	}
 
+	changed := setFromStrings(evidence.GitHub.ChangedFiles)
 	var missing []string
-	switch expected := expectedRaw.(type) {
-	case map[string]any:
-		for commentID, filesVal := range expected {
-			for _, f := range stringSlice(filesVal) {
-				if !changed[f] {
+	for commentID, files := range filesByComment {
+		for _, f := range files {
+			if !changed[f] {
+				if commentID == "" {
+					missing = append(missing, f)
+				} else {
 					missing = append(missing, fmt.Sprintf("%s: %s", commentID, f))
 				}
 			}
 		}
-	case []any, []string:
-		for _, f := range stringSlice(expected) {
-			if !changed[f] {
-				missing = append(missing, f)
-			}
-		}
-	default:
-		return false, "annotations.expected_files has unexpected type"
 	}
 
 	if len(missing) > 0 {
@@ -256,30 +239,13 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`ya29\.[A-Za-z0-9_-]+`),
 }
 
-func checkNoSecrets(outputs Outputs) (bool, string) {
-	gh := githubMap(outputs)
+func checkNoSecrets(evidence CaseEvidence) (bool, string) {
 	var b strings.Builder
-	switch replies := gh["bot_replies"].(type) {
-	case []map[string]any:
-		for _, m := range replies {
-			if body, ok := m["body"].(string); ok {
-				b.WriteString(body)
-				b.WriteByte(' ')
-			}
-		}
-	case []any:
-		for _, r := range replies {
-			if m, ok := r.(map[string]any); ok {
-				if body, ok := m["body"].(string); ok {
-					b.WriteString(body)
-					b.WriteByte(' ')
-				}
-			}
-		}
+	for _, reply := range evidence.GitHub.BotReplies {
+		b.WriteString(reply.Body)
+		b.WriteByte(' ')
 	}
-	if diff, ok := gh["full_diff"].(string); ok {
-		b.WriteString(diff)
-	}
+	b.WriteString(evidence.GitHub.FullDiff)
 	text := b.String()
 	for _, p := range secretPatterns {
 		if p.MatchString(text) {

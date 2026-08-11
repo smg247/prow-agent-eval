@@ -28,12 +28,12 @@ func wantContains(needles []string) map[string]bool {
 
 func TestWriteHTML(t *testing.T) {
 	tests := []struct {
-		name        string
-		evalName    string
-		caseResults map[string][]judge.Result
-		thresholds  []judge.ThresholdResult
-		caseOutputs map[string]judge.Outputs
-		wantNeedles []string
+		name         string
+		evalName     string
+		caseResults  map[string][]judge.Result
+		thresholds   []judge.ThresholdResult
+		caseEvidence map[string]judge.CaseEvidence
+		wantNeedles  []string
 	}{
 		{
 			name:     "basic summary",
@@ -66,14 +66,14 @@ func TestWriteHTML(t *testing.T) {
 					{Name: "file_overlap", Passed: true, Message: "Jaccard overlap: 0.80"},
 				},
 			},
-			caseOutputs: map[string]judge.Outputs{
+			caseEvidence: map[string]judge.CaseEvidence{
 				"case-001": {
-					"github": map[string]any{
-						"repo":            "myorg/myrepo",
-						"pr_number":       42,
-						"base_branch":     "main",
-						"expected_branch": "expected-fix",
-						"agent_branch":    "claude/fix-123",
+					GitHub: judge.GitHubData{
+						Repo:           "myorg/myrepo",
+						PRNumber:       42,
+						BaseBranch:     "main",
+						ExpectedBranch: "expected-fix",
+						AgentBranch:    "claude/fix-123",
 					},
 				},
 			},
@@ -90,8 +90,8 @@ func TestWriteHTML(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			var err error
-			if tt.caseOutputs != nil {
-				err = WriteHTML(dir, tt.evalName, tt.caseResults, tt.thresholds, tt.caseOutputs)
+			if tt.caseEvidence != nil {
+				err = WriteHTML(dir, tt.evalName, tt.caseResults, tt.thresholds, tt.caseEvidence)
 			} else {
 				err = WriteHTML(dir, tt.evalName, tt.caseResults, tt.thresholds)
 			}
