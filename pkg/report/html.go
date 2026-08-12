@@ -15,7 +15,8 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
 <title>Eval Report: {{.EvalName}}</title>
 <style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px 200px; background: #1e1e1e; color: #e0e0e0; }
+body { margin: 0; padding: 0; background: #1e1e1e; color: #e0e0e0; }
+.container { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1100px; margin: 0 auto; padding: 40px 20px; }
 h1 { color: #ffffff; }
 h2 { color: #cccccc; margin-top: 32px; }
 .summary { background: #2a2a2a; padding: 16px; border-radius: 8px; margin-bottom: 24px; font-size: 18px; }
@@ -41,6 +42,7 @@ a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+<div class="container">
 <h1>Eval Report: {{.EvalName}}</h1>
 <div class="summary">
   <span class="pass">{{.TotalPassed}}/{{.TotalChecks}}</span> checks passed across {{.CaseCount}} cases
@@ -108,6 +110,7 @@ a:hover { text-decoration: underline; }
 </tbody>
 </table>
 {{end}}
+</div>
 </body>
 </html>`
 
