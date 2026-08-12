@@ -37,6 +37,11 @@ func TestJudge_Followup(t *testing.T) {
 	gh.prBody = "Fixes review feedback on retries"
 	gh.prHead = "agent-work"
 	gh.prState = "open"
+	// Return only seeded comments — simulates a bot that never responded.
+	gh.issueComments = []map[string]any{
+		{"id": 1001, "body": "Please add retries around the API client.", "created_at": "2026-01-01T00:00:00Z", "user": map[string]any{"login": gh.botLogin}},
+		{"id": 1002, "body": "Add pagination support too?", "created_at": "2026-01-01T00:00:01Z", "user": map[string]any{"login": gh.botLogin}},
+	}
 
 	cli.SetDeps(cli.Deps{
 		NewGitHubClient: func(token, repo string) (*ghclient.Client, error) {
@@ -85,6 +90,12 @@ func TestJudge_Followup(t *testing.T) {
 	if got := caseReport.Checks["pr_description_exists"]; got != "pass" {
 		t.Errorf("pr_description_exists = %q, want pass", got)
 	}
+	if got := caseReport.Checks["reply_posted"]; got != "fail" {
+		t.Errorf("reply_posted = %q, want fail (seeded comments should be excluded from replies)", got)
+	}
+	if got := caseReport.Checks["scope_creep_declined"]; got != "fail" {
+		t.Errorf("scope_creep_declined = %q, want fail (no genuine bot replies)", got)
+	}
 	if !strings.Contains(caseReport.PRURL, "/pull/42") {
 		t.Errorf("PRURL %q missing /pull/42", caseReport.PRURL)
 	}
@@ -101,8 +112,8 @@ func TestJudge_Followup(t *testing.T) {
 	if len(suites.Suites) != 1 {
 		t.Fatalf("suites len = %d, want 1", len(suites.Suites))
 	}
-	if suites.Suites[0].Failures != 0 || suites.Suites[0].Errors != 0 {
-		t.Errorf("unexpected junit failures=%d errors=%d", suites.Suites[0].Failures, suites.Suites[0].Errors)
+	if suites.Suites[0].Failures != 2 {
+		t.Errorf("junit failures = %d, want 2 (reply_posted + scope_creep_declined)", suites.Suites[0].Failures)
 	}
 }
 
@@ -199,7 +210,8 @@ func seedFollowupShared(t *testing.T, sharedDir, fixtureSHA string) {
 		t.Fatal(err)
 	}
 	posted := map[string]ghclient.PostedComment{
-		"comment-001": {GitHubID: 1001, Category: "quality", CreatedAt: "2026-01-01T00:00:00Z"},
+		"comment-001": {GitHubID: 1001, Category: "valid_actionable", CreatedAt: "2026-01-01T00:00:00Z"},
+		"comment-002": {GitHubID: 1002, Category: "scope_creep", CreatedAt: "2026-01-01T00:00:01Z"},
 	}
 	data, err := json.Marshal(posted)
 	if err != nil {

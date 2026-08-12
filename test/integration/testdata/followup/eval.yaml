@@ -23,6 +23,12 @@ judges:
   - name: no_secrets
     description: No secrets leaked
     type: no_secrets
+  - name: reply_posted
+    description: Bot replied to actionable comments
+    type: reply_posted
+  - name: scope_creep_declined
+    description: Bot declined scope creep
+    type: scope_creep_declined
 thresholds:
   branch_created:
     min_pass_rate: 1.0

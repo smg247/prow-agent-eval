@@ -32,6 +32,7 @@ type githubMock struct {
 	prState  string
 
 	nextCommentID int64
+	issueComments []map[string]any
 }
 
 func startGitHubMock(t *testing.T) *githubMock {
@@ -130,12 +131,16 @@ func (m *githubMock) serve(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case r.Method == http.MethodGet && strings.Contains(path, "/issues/") && strings.HasSuffix(path, "/comments"):
-		writeJSON(w, []map[string]any{{
-			"id":         2001,
-			"body":       "bot reply looks fine",
-			"created_at": "2026-01-01T00:00:00Z",
-			"user":       map[string]any{"login": m.botLogin},
-		}})
+		if m.issueComments != nil {
+			writeJSON(w, m.issueComments)
+		} else {
+			writeJSON(w, []map[string]any{{
+				"id":         2001,
+				"body":       "bot reply looks fine",
+				"created_at": "2026-01-01T00:00:00Z",
+				"user":       map[string]any{"login": m.botLogin},
+			}})
+		}
 
 	case r.Method == http.MethodGet && strings.Contains(path, "/pulls/") && strings.HasSuffix(path, "/comments"):
 		writeJSON(w, []any{})
