@@ -304,7 +304,13 @@ def judge(
             logger.error("case %s error: %s", name, err)
             raise click.ClickException(f"case {name}: {err}") from err
 
-    gate_ok = run_scoring(config, case_dirs, artifact_dir, run_id=config.eval_name())
+    gate_ok = run_scoring(
+        config,
+        case_dirs,
+        artifact_dir,
+        run_id=config.eval_name(),
+        shared_dir=shared_dir,
+    )
     if not gate_ok:
         raise click.ClickException("eval gate failed: threshold regression(s) detected")
     logger.info("judge complete")
