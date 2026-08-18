@@ -84,6 +84,42 @@ def check_file_overlap(outputs, **kwargs):
     return (j >= min_jaccard, f"Jaccard: {j:.2f}")
 
 
+def check_golden_files_covered(outputs, **kwargs):
+    """Pass when the agent changed every golden (expected-branch) file.
+
+    Extra files such as tests do not reduce the score — only missing golden
+    files matter. Per-case ``golden_min_coverage`` in annotations overrides
+    the judge ``min_coverage`` argument from eval.yaml.
+    """
+    gh = _github(outputs)
+    changed = set(gh.get("changed_files", []))
+    expected = set(gh.get("expected_changed_files", []))
+    if not expected:
+        return (True, "N/A (no golden files)")
+    if not changed:
+        return (False, f"Golden coverage: 0.00 (0/{len(expected)})")
+
+    min_coverage = float(kwargs.get("min_coverage", 1.0))
+    ann = _annotations(outputs).get("golden_min_coverage")
+    if ann is not None:
+        min_coverage = float(ann)
+
+    covered_files = expected & changed
+    coverage = len(covered_files) / len(expected)
+    hit, total = len(covered_files), len(expected)
+    if coverage >= min_coverage:
+        return (True, f"Golden coverage: {coverage:.2f} ({hit}/{total})")
+
+    missing = sorted(expected - changed)
+    missing_str = ", ".join(missing[:5])
+    if len(missing) > 5:
+        missing_str += f", ... (+{len(missing) - 5} more)"
+    return (
+        False,
+        f"Golden coverage: {coverage:.2f} ({hit}/{total}), missing: {missing_str}",
+    )
+
+
 def check_diff_size_ratio(outputs, **kwargs):
     gh = _github(outputs)
     expected_diff = gh.get("expected_full_diff", "")

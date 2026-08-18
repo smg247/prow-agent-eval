@@ -9,6 +9,7 @@ from prow_agent_eval.judges import (
     check_branch_created,
     check_expected_files_changed,
     check_file_overlap,
+    check_golden_files_covered,
     check_no_secrets,
     check_pr_exists,
     check_reply_posted,
@@ -59,6 +60,49 @@ def test_check_file_overlap():
         )
     )
     assert check_file_overlap(outputs2)[0] is False
+
+
+def test_check_golden_files_covered_extra_files_ok():
+    outputs = _write_evidence(
+        CaseEvidence(
+            github=GitHubData(
+                changed_files=[
+                    "pkg/sippyserver/server.go",
+                    "pkg/sippyserver/server_test.go",
+                    "sippy-ng/e2e/trailing-slash-redirect.spec.js",
+                ],
+                expected_changed_files=["pkg/sippyserver/server.go"],
+            )
+        )
+    )
+    assert check_golden_files_covered(outputs)[0] is True
+
+
+def test_check_golden_files_covered_missing_golden_file():
+    outputs = _write_evidence(
+        CaseEvidence(
+            github=GitHubData(
+                changed_files=["pkg/sippyserver/server_test.go"],
+                expected_changed_files=["pkg/sippyserver/server.go"],
+            )
+        )
+    )
+    passed, msg = check_golden_files_covered(outputs)
+    assert passed is False
+    assert "missing" in msg
+
+
+def test_check_golden_files_covered_partial_floor():
+    outputs = _write_evidence(
+        CaseEvidence(
+            github=GitHubData(
+                changed_files=["a.go", "b.go"],
+                expected_changed_files=["a.go", "b.go", "c.go", "d.go"],
+            )
+        )
+    )
+    assert check_golden_files_covered(outputs, min_coverage=0.25)[0] is True
+    assert check_golden_files_covered(outputs, min_coverage=1.0)[0] is False
 
 
 def test_check_expected_files_changed():
