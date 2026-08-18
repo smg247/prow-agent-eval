@@ -19,7 +19,7 @@ test = ["pytest>=8.0", "responses>=0.25"]
 llm = ["anthropic>=0.40"]
 
 [project.scripts]
-prow-agent-eval-python = "prow_agent_eval.cli:main"
+prow-agent-eval = "prow_agent_eval.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

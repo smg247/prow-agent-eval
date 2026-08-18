@@ -1,18 +1,18 @@
 # prow-agent-eval
 
-Go CLI for the agentic eval lifecycle in Prow: **init → (agent) → judge → cleanup**.
+Python CLI for the agentic eval lifecycle in Prow: **init → (agent) → judge → cleanup**.
 
-It creates eval branches/PRs, collects post-agent git/GitHub state, runs deterministic judges, and emits JUnit/YAML/HTML reports. Step-registry scripts can shrink to thin wrappers around this binary.
+It creates eval branches/PRs, collects post-agent git/GitHub state, runs harness judges, and emits JUnit/HTML reports. Step-registry scripts invoke `prow-agent-eval` directly.
 
 ## Build
 
 ```bash
-make build   # bin/prow-agent-eval
+make install   # editable install in .venv
 make test
-make image   # docker image tagged prow-agent-eval
+make image     # docker image tagged prow-agent-eval
 ```
 
-Requires Go (see `go.mod`). The container image includes `git` and `make` for collection.
+Requires Python 3.11+. The container image includes `git` and `make` for collection steps.
 
 ## Commands
 
@@ -45,79 +45,16 @@ Prow `${SHARED_DIR}` is the handoff between steps (`--shared-dir`):
 
 ## Eval config
 
-```yaml
-name: my-eval
-init:
-  repo: owner/repo          # default; overridable per case
-
-dataset:
-  path: cases/my-eval
-
-collect:
-  bot_replies: false
-  comment_map: false
-  build_result: true
-  test_result: true
-  expected_branch_diff: true
-
-judges:
-  - name: compiles
-    type: build_passed
-  - name: tests
-    type: test_passed
-  - name: overlap
-    type: file_overlap
-
-thresholds:
-  compiles:
-    min_pass_rate: 1.0
-  tests:
-    min_pass_rate: 1.0
-  overlap:
-    min_pass_rate: 1.0
-```
-
-### Case layout
-
-```
-cases/my-eval/<case>/
-  input.yaml          # base_branch, head_branch, jira_key; optional repo, expected_branch
-  annotations.yaml    # optional (e.g. expected_files)
-  comments.json       # optional; seeded in followup mode
-```
-
-`expected_branch` is required when `collect.expected_branch_diff` is true (golden overlap vs fixture SHA).
-
-### Judges
-
-| `type` | Passes when |
-|--------|-------------|
-| `branch_created` | Agent branch is set and not `main`/`master` |
-| `pr_exists` | PR number > 0 |
-| `build_passed` | `make build` succeeded (`build_result`) |
-| `test_passed` | `make test` succeeded (`test_result`) |
-| `file_overlap` | Jaccard(`changed_files`, `expected_changed_files`) ≥ 0.25 |
-| `expected_files_changed` | All `annotations.expected_files` appear in `changed_files` |
-| `no_secrets` | No common credential patterns in bot replies / diff |
-
-If `type` is omitted, `name` is used as the type.
-
-### Artifacts
-
-Written under `--artifact-dir`:
-
-- `junit_<eval-name>.xml`
-- `eval-<case>.yaml`
-- `eval-summary.yaml`
-- `eval-summary.html`
+Uses [agent-eval-harness](https://github.com/opendatahub-io/agent-eval-harness) `EvalConfig` YAML. See harness docs for judge definitions and case layout.
 
 Judge exits non-zero if any case errors, thresholds are unmet, or JUnit cannot be written.
 
 ## Development
 
 ```bash
+make vendor-harness   # clone harness for local tests
 make test
-make lint
+make test-integration
 ```
 
-Module: `github.com/smg247/prow-agent-eval`
+Set `AGENT_EVAL_HARNESS_ROOT` to a harness clone if not using `vendor/agent-eval-harness`.

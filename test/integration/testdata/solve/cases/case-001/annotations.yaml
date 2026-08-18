@@ -1,4 +1,0 @@
-difficulty: easy
-expected_files:
-  comment-001:
-    - pkg/controller/reconcile.go
