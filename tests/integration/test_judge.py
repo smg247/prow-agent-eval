@@ -199,3 +199,7 @@ def test_judge_solve():
     assert result.exit_code == 0, result.output
     assert os.path.isfile(os.path.join(artifact_dir, "junit_solve-eval.xml"))
     assert os.path.isfile(os.path.join(artifact_dir, "eval-summary.html"))
+
+    html = open(os.path.join(artifact_dir, "eval-summary.html")).read()
+    assert "https://github.com/acme/widget/pull/7" in html
+    assert "expected diff" in html

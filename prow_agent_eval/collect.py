@@ -119,6 +119,8 @@ def _collect_github_data(
 ) -> GitHubData:
     diff = repo.diff_against(fixture_sha)
     gh = GitHubData(
+        repo=f"{client.owner()}/{client.repo()}",
+        base_branch=meta.base_branch,
         agent_branch=head_branch,
         changed_files=diff.changed_files,
         full_diff=diff.full_diff,
@@ -143,6 +145,7 @@ def _collect_github_data(
 
     if flags["expected_branch_diff"]:
         expected_branch = case.input.expected_branch
+        gh.expected_branch = expected_branch
         repo.fetch("origin", expected_branch)
         expected_diff = repo.diff_branches(fixture_sha, f"origin/{expected_branch}")
         gh.expected_changed_files = expected_diff.changed_files

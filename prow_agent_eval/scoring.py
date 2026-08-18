@@ -5,11 +5,13 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import sys
 from pathlib import Path
 
 import yaml
 
 from prow_agent_eval.junit import write_junit
+from prow_agent_eval.report_enhance import enrich_html_report
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,8 @@ def run(
 ) -> bool:
     """Run harness scoring pipeline and write JUnit + HTML report."""
     score = _load_score_module()
+    # report.py imports detect_regressions from a top-level `score` module.
+    sys.modules["score"] = score
     report_mod = _load_report_module()
 
     eval_name = config.eval_name()
@@ -100,6 +104,7 @@ def run(
     html = report_mod.generate_report(
         config_dict, summary, run_result={}, run_dir=run_dir
     )
+    html = enrich_html_report(html, run_dir)
     html_path = Path(artifact_dir) / "eval-summary.html"
     html_path.write_text(html)
     os.chmod(html_path, 0o600)

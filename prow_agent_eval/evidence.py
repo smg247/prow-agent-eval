@@ -24,6 +24,9 @@ class BotReply:
 
 @dataclass
 class GitHubData:
+    repo: str = ""
+    base_branch: str = ""
+    expected_branch: str = ""
     agent_branch: str = ""
     pr_number: int = 0
     pr_body: str = ""
