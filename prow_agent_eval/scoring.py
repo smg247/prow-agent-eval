@@ -54,6 +54,17 @@ def _load_score_module():
     return mod
 
 
+def _resolve_thresholds(thresholds, aggregated: dict) -> dict:
+    """Map legacy threshold names to ``_py`` judges during Go/Python transition."""
+    resolved: dict = {}
+    for name, spec in thresholds.items():
+        target = name
+        if name not in aggregated and f"{name}_py" in aggregated:
+            target = f"{name}_py"
+        resolved[target] = spec
+    return resolved
+
+
 def _load_report_module():
     report_path = _harness_repo_root() / "skills" / "eval-run" / "scripts" / "report.py"
     if not report_path.is_file():
@@ -91,7 +102,8 @@ def run(
     score._merge_summary(run_id, "judges", results["aggregated"], runs_dir)
     score._merge_summary(run_id, "per_case", results["per_case"], runs_dir)
 
-    regressions = score.detect_regressions(results["aggregated"], config.thresholds)
+    thresholds = _resolve_thresholds(config.thresholds, results["aggregated"])
+    regressions = score.detect_regressions(results["aggregated"], thresholds)
 
     summary_path = run_dir / "summary.yaml"
     summary = yaml.safe_load(summary_path.read_text()) if summary_path.is_file() else {}
