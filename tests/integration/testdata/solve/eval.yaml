@@ -1,0 +1,27 @@
+name: solve-eval
+description: Integration fixture for jira-solver style initial solve eval
+init:
+  repo: acme/widget
+dataset:
+  path: cases
+judges:
+  - name: branch_created
+    module: prow_agent_eval.judges
+    function: check_branch_created
+  - name: pr_exists
+    module: prow_agent_eval.judges
+    function: check_pr_exists
+  - name: file_overlap
+    module: prow_agent_eval.judges
+    function: check_file_overlap
+  - name: expected_files_changed
+    module: prow_agent_eval.judges
+    function: check_expected_files_changed
+  - name: no_secrets
+    module: prow_agent_eval.judges
+    function: check_no_secrets
+thresholds:
+  file_overlap:
+    min_pass_rate: 1.0
+  expected_files_changed:
+    min_pass_rate: 1.0

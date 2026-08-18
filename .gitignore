@@ -4,6 +4,12 @@
 *.test
 *.out
 
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
 # Go
 coverage.out
 coverage.html

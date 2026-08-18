@@ -1,0 +1,4 @@
+difficulty: medium
+expected_files:
+  comment-001:
+    - pkg/api/server.go

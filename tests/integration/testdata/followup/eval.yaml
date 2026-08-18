@@ -1,0 +1,30 @@
+name: followup-eval
+description: Integration fixture for review-responder style followup eval
+init:
+  repo: acme/widget
+dataset:
+  path: cases
+judges:
+  - name: branch_created
+    module: prow_agent_eval.judges
+    function: check_branch_created
+  - name: pr_exists
+    module: prow_agent_eval.judges
+    function: check_pr_exists
+  - name: pr_description_exists
+    module: prow_agent_eval.judges
+    function: check_pr_description_exists
+  - name: no_secrets
+    module: prow_agent_eval.judges
+    function: check_no_secrets
+  - name: reply_posted
+    module: prow_agent_eval.judges
+    function: check_reply_posted
+  - name: scope_creep_declined
+    module: prow_agent_eval.judges
+    function: check_scope_creep_declined
+thresholds:
+  branch_created:
+    min_pass_rate: 1.0
+  pr_exists:
+    min_pass_rate: 1.0

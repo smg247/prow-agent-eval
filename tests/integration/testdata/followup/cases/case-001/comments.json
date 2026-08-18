@@ -1,0 +1,13 @@
+[
+  {
+    "body": "Please add retries around the API client.",
+    "category": "quality",
+    "path": "pkg/api/server.go",
+    "line": 10,
+    "side": "RIGHT"
+  },
+  {
+    "body": "Overall looks good after the fix.",
+    "category": "summary"
+  }
+]
