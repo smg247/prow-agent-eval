@@ -37,9 +37,11 @@ def test_init_followup():
     # We need clone URL override - patch GitHubClient.clone_url by wrapping init
     from unittest.mock import patch
 
+    tokens: list[str] = []
     original_init = GitHubClient.__init__
 
     def patched_init(self, token, repo_full_name, api_url=None, clone_url=None):
+        tokens.append(token)
         original_init(self, token, repo_full_name, api_url=api_url, clone_url=bare)
 
     with patch.object(GitHubClient, "__init__", patched_init):
@@ -53,10 +55,12 @@ def test_init_followup():
                 "--mode", "followup",
                 "--case", "case-001",
                 "--token", "test-token",
+                "--seed-token", "reviewer-token",
             ],
         )
 
     assert result.exit_code == 0, result.output
+    assert tokens == ["test-token", "reviewer-token"]
     meta = read_case_metadata(shared_dir, "case-001")
     assert meta.repo == "acme/widget"
     assert meta.base_branch == "main"

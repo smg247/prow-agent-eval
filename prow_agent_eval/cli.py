@@ -62,6 +62,12 @@ def main() -> None:
 @click.option("--mode", type=click.Choice(["solve", "followup"]), required=True)
 @click.option("--case", "case_name", default=None)
 @click.option("--token", default=None)
+@click.option(
+    "--seed-token",
+    default=None,
+    help="Token used only to post seeded review comments. "
+    "Falls back to GITHUB_SEED_TOKEN, then --token / GITHUB_TOKEN.",
+)
 def init(
     config_path: str,
     shared_dir: str,
@@ -69,10 +75,12 @@ def init(
     mode: str,
     case_name: str | None,
     token: str | None,
+    seed_token: str | None,
 ) -> None:
     """Create branches, PRs, and seed comments for eval cases."""
     _setup_logging()
     token = _resolve_token(token)
+    seed_token = seed_token or os.environ.get("GITHUB_SEED_TOKEN") or token
     config = EvalConfig.from_yaml(config_path)
     config_dir = str(Path(config_path).parent)
 
@@ -88,7 +96,7 @@ def init(
 
     logger.info("initializing %d case(s) mode=%s", len(case_names), mode)
     for name in case_names:
-        _init_case(config_path, config_dir, config, shared_dir, name, repo, mode, token)
+        _init_case(config_path, config_dir, config, shared_dir, name, repo, mode, token, seed_token)
     logger.info("init complete count=%d", len(case_names))
 
 
@@ -101,6 +109,7 @@ def _init_case(
     cli_repo: str | None,
     mode: str,
     token: str,
+    seed_token: str,
 ) -> None:
     case = load_case(config_dir, config.dataset.path, case_name)
     if not case.input.base_branch:
@@ -135,7 +144,8 @@ def _init_case(
     write_case_metadata(shared_dir, meta)
 
     if mode == "followup":
-        _seed_case_comments(case, meta, client, shared_dir, token)
+        seed_client = GitHubClient(seed_token, repo_full)
+        _seed_case_comments(case, meta, seed_client, shared_dir)
 
     if meta.pr_number:
         logger.info(
@@ -207,7 +217,6 @@ def _seed_case_comments(
     meta: CaseMetadata,
     client: GitHubClient,
     shared_dir: str,
-    token: str,
 ) -> None:
     comments_path = os.path.join(case.dir, "comments.json")
     if not os.path.isfile(comments_path):
