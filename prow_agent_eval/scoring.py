@@ -118,10 +118,12 @@ def run(
 
     for reg in regressions:
         logger.warning(
-            "threshold missed: %s actual=%s required=%s",
-            reg.get("name"),
-            reg.get("actual"),
-            reg.get("required"),
+            "threshold missed: %s/%s actual=%s required=%s%s",
+            reg.judge_name,
+            reg.metric,
+            reg.current_value,
+            reg.baseline_value,
+            f" ({reg.detail})" if reg.detail else "",
         )
 
     return len(regressions) == 0
