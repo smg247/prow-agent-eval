@@ -77,6 +77,7 @@ def run(
     artifact_dir: str,
     run_id: str | None = None,
     shared_dir: str | None = None,
+    collection_errors: dict[str, str] | None = None,
 ) -> bool:
     """Run harness scoring pipeline and write JUnit + HTML report."""
     score = _load_score_module()
@@ -92,7 +93,19 @@ def run(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     judges = score.load_judges(config, project_root=Path.cwd())
-    results = score.score_cases(judges, case_dirs, config, run_id=run_id)
+    collection_errors = collection_errors or {}
+    collected = [case_dir for case_dir in case_dirs if case_dir.name not in collection_errors]
+    results = score.score_cases(judges, collected, config, run_id=run_id)
+    # Missing evidence is an explicit case error, not an empty successful
+    # collection or a reason to skip reporting the rest of the dataset.
+    for case_name, error in collection_errors.items():
+        results["per_case"][case_name] = {
+            name: {"value": None, "error": f"Evidence collection failed: {error}", "judge_type": judge_type}
+            for name, _, _, judge_type, _ in judges
+        } or {"collection": {"value": None, "error": error}}
+    for aggregate in results["aggregated"].values():
+        aggregate["errored_cases"] = aggregate.get("errored_cases", 0) + len(collection_errors)
+        aggregate.setdefault("scored_cases", len(aggregate.get("values", [])))
 
     score._merge_summary(run_id, "judges", results["aggregated"], runs_dir)
     score._merge_summary(run_id, "per_case", results["per_case"], runs_dir)
@@ -126,4 +139,4 @@ def run(
             f" ({reg.detail})" if reg.detail else "",
         )
 
-    return len(regressions) == 0
+    return len(regressions) == 0 and not collection_errors

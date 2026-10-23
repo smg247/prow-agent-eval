@@ -49,6 +49,8 @@ Prow `${SHARED_DIR}` is the handoff between steps (`--shared-dir`):
 Uses [agent-eval-harness](https://github.com/opendatahub-io/agent-eval-harness) `EvalConfig` YAML. See harness docs for judge definitions and case layout.
 
 Judge exits non-zero if any case errors, thresholds are unmet, or JUnit cannot be written.
+Evidence collection errors are included in the case reports; remaining cases are
+still collected and scored, even when a failed solve has no published branch.
 
 ## Onboarding a workflow
 

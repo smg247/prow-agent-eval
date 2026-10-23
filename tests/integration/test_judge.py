@@ -5,9 +5,13 @@ import os
 import xml.etree.ElementTree as ET
 
 import responses
+import pytest
+import yaml
 from click.testing import CliRunner
 
 from prow_agent_eval.cli import main
+from prow_agent_eval.collect import write_evidence
+from prow_agent_eval.evidence import CaseEvidence, GitHubData
 from prow_agent_eval.github import GitHubClient
 from prow_agent_eval.shared import CaseMetadata, write_case_list, write_case_metadata, write_file
 from tests.integration.conftest import fixture_dir, setup_bare_origin
@@ -203,3 +207,62 @@ def test_judge_solve():
     html = open(os.path.join(artifact_dir, "eval-summary.html")).read()
     assert "https://github.com/acme/widget/pull/7" in html
     assert "expected diff" in html
+
+
+@pytest.mark.parametrize("all_failed", [False, True])
+def test_judge_reports_collection_errors_and_continues(tmp_path, monkeypatch, all_failed):
+    cases = ["case-001", "case-002", "case-003"]
+    failed = set(cases if all_failed else cases[:1])
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    write_case_list(str(shared), cases)
+    artifacts = tmp_path / "artifacts"
+    config = tmp_path / "eval.yaml"
+    config.write_text("""name: collection-failures
+dataset:
+  path: cases
+judges:
+  - name: branch_created
+    module: prow_agent_eval.judges
+    function: check_branch_created
+""")
+    attempted = []
+
+    def collect_case(_config, _config_dir, _shared, _artifacts, name, _repo, _mode, _token, case_dir):
+        attempted.append(name)
+        if name in failed:
+            raise ValueError("no head branch available: https://user:fixture-password-should-not-leak@example.com/repo")
+        write_evidence(case_dir, CaseEvidence(github=GitHubData(agent_branch="agent-work")))
+
+    monkeypatch.setattr("prow_agent_eval.cli._judge_case", collect_case)
+    result = CliRunner().invoke(main, [
+        "judge", "--config", str(config), "--shared-dir", str(shared),
+        "--artifact-dir", str(artifacts), "--mode", "solve", "--token", "test-token",
+    ])
+
+    assert result.exit_code == 1, result.output
+    assert attempted == cases
+    assert "evidence collection failed" in result.output
+    run_dir = artifacts / "eval/runs/collection-failures/collection-failures"
+    summary = yaml.safe_load((run_dir / "summary.yaml").read_text())
+    assert set(summary["per_case"]) == set(cases)
+    for name in cases:
+        score = summary["per_case"][name]["branch_created"]
+        if name in failed:
+            assert "no head branch available" in score["error"]
+            error_file = run_dir / "cases" / name / "collection-error.txt"
+            assert error_file.is_file()
+            assert error_file.stat().st_mode & 0o777 == 0o600
+        else:
+            assert score["value"] is True
+    aggregate = summary["judges"]["branch_created"]
+    assert aggregate["errored_cases"] == len(failed)
+    assert aggregate["scored_cases"] == len(cases) - len(failed)
+    junit = (artifacts / "junit_collection-failures.xml").read_text()
+    suite = ET.fromstring(junit).find("testsuite")
+    assert int(suite.get("tests")) == len(cases)
+    assert int(suite.get("errors")) == len(failed)
+    html = (artifacts / "eval-summary.html").read_text()
+    for name in cases:
+        assert name in html
+    assert "fixture-password-should-not-leak" not in junit + html + str(summary) + result.output

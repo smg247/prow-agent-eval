@@ -17,6 +17,7 @@ from prow_agent_eval.cases import Case, list_cases, load_case, load_init_repo
 from prow_agent_eval.collect import collect, write_evidence
 from prow_agent_eval.git import eval_branch_name, short_sha
 from prow_agent_eval.github import GitHubClient, load_seeded_comments
+from prow_agent_eval.redact import redact_secrets
 from prow_agent_eval.scoring import run as run_scoring
 from prow_agent_eval.shared import (
     CaseMetadata,
@@ -293,6 +294,7 @@ def judge(
     cases_root.mkdir(parents=True, exist_ok=True)
 
     case_dirs: list[Path] = []
+    collection_errors: dict[str, str] = {}
     for name in case_names:
         case_dir = cases_root / name
         case_dir.mkdir(parents=True, exist_ok=True)
@@ -308,10 +310,15 @@ def judge(
                 token,
                 case_dir,
             )
-            case_dirs.append(case_dir)
+            (case_dir / "collection-error.txt").unlink(missing_ok=True)
         except Exception as err:
-            logger.error("case %s error: %s", name, err)
-            raise click.ClickException(f"case {name}: {err}") from err
+            error = redact_secrets(str(err))
+            logger.error("case %s error: %s", name, error)
+            collection_errors[name] = error
+            error_path = case_dir / "collection-error.txt"
+            error_path.write_text(error + "\n")
+            os.chmod(error_path, 0o600)
+        case_dirs.append(case_dir)
 
     gate_ok = run_scoring(
         config,
@@ -319,7 +326,12 @@ def judge(
         artifact_dir,
         run_id=config.eval_name(),
         shared_dir=shared_dir,
+        collection_errors=collection_errors,
     )
+    if collection_errors:
+        raise click.ClickException(
+            f"evidence collection failed for {', '.join(collection_errors)}; see case reports"
+        )
     if not gate_ok:
         raise click.ClickException("eval gate failed: threshold regression(s) detected")
     logger.info("judge complete")
